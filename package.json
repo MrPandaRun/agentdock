@@ -2,15 +2,19 @@
   "name": "agentdock",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.24.0",
+  "packageManager": "bun@1.1.27",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev:desktop": "pnpm --filter @agentdock/desktop tauri dev",
-    "dev:mobile": "pnpm --filter @agentdock/mobile start",
-    "dev": "pnpm --filter @agentdock/desktop run dev",
-    "build": "pnpm -r --if-present run build",
-    "lint": "pnpm -r --if-present run lint",
-    "typecheck": "pnpm -r --if-present run typecheck && pnpm rust:check",
-    "test": "pnpm -r --if-present run test && pnpm rust:test",
+    "dev:desktop": "bun run --filter @agentdock/desktop tauri dev",
+    "dev:mobile": "bun run --filter @agentdock/mobile start",
+    "dev": "bun run --filter @agentdock/desktop dev",
+    "build": "bun run --filter '*' --if-present build",
+    "lint": "bun run --filter '*' --if-present lint",
+    "typecheck": "bun run --filter '*' --if-present typecheck && bun run rust:check",
+    "test": "bun run --filter '*' --if-present test && bun run rust:test",
     "rust:check": "cargo check --workspace --manifest-path ./Cargo.toml",
     "rust:test": "cargo test --workspace --manifest-path ./Cargo.toml"
   }

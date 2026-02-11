@@ -17,17 +17,17 @@ AgentDock is a local-first control plane for coding agents (`Codex`, `Claude Cod
 ## Quick Start
 
 ```bash
-pnpm install
-pnpm dev:desktop
+bun install
+bun run dev:desktop
 ```
 
 ```bash
-pnpm dev:mobile
+bun run dev:mobile
 ```
 
 ## Verification
 
 ```bash
-pnpm --filter @agentdock/contracts typecheck
+bun run --filter @agentdock/contracts typecheck
 cargo test --workspace --manifest-path ./Cargo.toml
 ```
