@@ -1,0 +1,22 @@
+# Node
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.expo/
+apps/mobile/.expo/
+
+# Logs
+*.log
+
+# Rust
+target/
+
+# Local env
+.env
+.env.*
+
+# macOS
+.DS_Store

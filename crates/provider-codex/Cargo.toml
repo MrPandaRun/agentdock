@@ -1,0 +1,8 @@
+[package]
+name = "provider-codex"
+version = "0.1.0"
+edition = "2021"
+description = "Codex adapter stub for AgentDock"
+
+[dependencies]
+provider-contract = { path = "../provider-contract" }

@@ -1,0 +1,9 @@
+[package]
+name = "agentdock-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core domain and SQLite utilities for AgentDock"
+
+[dependencies]
+rusqlite = { workspace = true }
+thiserror = { workspace = true }
