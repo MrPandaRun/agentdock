@@ -3,6 +3,10 @@
   "compilerOptions": {
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
 
     /* Bundler mode */
     "moduleResolution": "bundler",

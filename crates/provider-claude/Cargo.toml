@@ -2,7 +2,8 @@
 name = "provider-claude"
 version = "0.1.0"
 edition = "2021"
-description = "Claude Code adapter stub for AgentDock"
+description = "Claude Code adapter for AgentDock"
 
 [dependencies]
 provider-contract = { path = "../provider-contract" }
+serde_json = { workspace = true }

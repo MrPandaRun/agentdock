@@ -21,7 +21,9 @@ name = "agentdock-desktop"
 version = "0.1.0"
 dependencies = [
  "agentdock-core",
+ "provider-claude",
  "provider-contract",
+ "serde",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
@@ -2792,6 +2794,7 @@ name = "provider-claude"
 version = "0.1.0"
 dependencies = [
  "provider-contract",
+ "serde_json",
 ]
 
 [[package]]

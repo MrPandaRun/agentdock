@@ -19,3 +19,5 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 agentdock-core = { path = "../../../crates/agentdock-core" }
 provider-contract = { path = "../../../crates/provider-contract" }
+provider-claude = { path = "../../../crates/provider-claude" }
+serde = { workspace = true }
