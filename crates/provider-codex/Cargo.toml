@@ -6,3 +6,5 @@ description = "Codex adapter stub for AgentDock"
 
 [dependencies]
 provider-contract = { path = "../provider-contract" }
+serde_json = { workspace = true }
+time = { version = "0.3", features = ["parsing"] }

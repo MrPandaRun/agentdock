@@ -1,11 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ArrowUp,
+  Bot,
+  Monitor,
   PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
   Pencil,
   RefreshCw,
+  SquareTerminal,
   Slash,
 } from "lucide-react";
 import {
@@ -22,6 +26,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmbeddedTerminal } from "@/components/terminal/EmbeddedTerminal";
 import {
   ThreadFolderGroup,
   type ThreadFolderGroupItem,
@@ -40,7 +45,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-interface ClaudeThreadSummary {
+interface AgentThreadSummary {
   id: string;
   providerId: "claude_code" | string;
   projectPath: string;
@@ -50,7 +55,7 @@ interface ClaudeThreadSummary {
   lastMessagePreview?: string | null;
 }
 
-interface ClaudeThreadMessage {
+interface AgentThreadMessage {
   role: string;
   content: string;
   timestampMs?: number;
@@ -73,8 +78,12 @@ interface ToolMessageParts {
 
 const SIDEBAR_WIDTH_KEY = "agentdock.desktop.sidebar_width";
 const SIDEBAR_COLLAPSED_KEY = "agentdock.desktop.sidebar_collapsed";
+const RIGHT_PANE_MODE_KEY = "agentdock.desktop.right_pane_mode";
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 520;
+const WINDOW_DRAG_STRIP_HEIGHT = 32;
+
+type RightPaneMode = "terminal" | "ui";
 
 function readStoredSidebarWidth(): number {
   if (typeof window === "undefined") {
@@ -93,6 +102,14 @@ function readStoredSidebarCollapsed(): boolean {
     return false;
   }
   return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+}
+
+function readStoredRightPaneMode(): RightPaneMode {
+  if (typeof window === "undefined") {
+    return "terminal";
+  }
+  const raw = window.localStorage.getItem(RIGHT_PANE_MODE_KEY);
+  return raw === "ui" ? "ui" : "terminal";
 }
 
 function formatLastActive(raw: string): string {
@@ -140,12 +157,32 @@ function folderNameFromProjectPath(path: string): string {
   return segments[segments.length - 1] ?? normalized;
 }
 
-function threadPreview(thread: Pick<ClaudeThreadSummary, "title" | "lastMessagePreview">): string {
+function threadPreview(thread: Pick<AgentThreadSummary, "title" | "lastMessagePreview">): string {
   const preview = thread.lastMessagePreview?.trim();
   if (preview) {
     return preview;
   }
   return thread.title;
+}
+
+function isCodexProvider(providerId?: string): boolean {
+  return providerId === "codex";
+}
+
+function providerDisplayName(providerId?: string): string {
+  if (providerId === "codex") {
+    return "Codex";
+  }
+  if (providerId === "claude_code") {
+    return "Claude Code";
+  }
+  return providerId ?? "Provider";
+}
+
+function providerAccentClass(providerId?: string): string {
+  return isCodexProvider(providerId)
+    ? "text-[hsl(var(--brand-codex))]"
+    : "text-[hsl(var(--brand-claude))]";
 }
 
 function splitToolMessage(content: string): ToolMessageParts {
@@ -227,7 +264,7 @@ function parseToolTitle(raw: string): { strong: string; rest?: string } {
   };
 }
 
-function makeLocalMessage(role: string, content: string): ClaudeThreadMessage {
+function makeLocalMessage(role: string, content: string): AgentThreadMessage {
   return {
     role,
     content,
@@ -238,20 +275,24 @@ function makeLocalMessage(role: string, content: string): ClaudeThreadMessage {
 }
 
 function App() {
-  const [threads, setThreads] = useState<ClaudeThreadSummary[]>([]);
+  const [threads, setThreads] = useState<AgentThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ClaudeThreadMessage[]>([]);
+  const [messages, setMessages] = useState<AgentThreadMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [showToolEvents, setShowToolEvents] = useState(false);
+  const [rightPaneMode, setRightPaneMode] = useState<RightPaneMode>(
+    readStoredRightPaneMode,
+  );
   const [error, setError] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState<number>(readStoredSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(
     readStoredSidebarCollapsed,
   );
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const appWindow = useMemo(() => getCurrentWindow(), []);
   const layoutRef = useRef<HTMLElement | null>(null);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -260,8 +301,8 @@ function App() {
     [threads, selectedThreadId],
   );
 
-  const folderGroups = useMemo<ThreadFolderGroupItem<ClaudeThreadSummary>[]>(() => {
-    const grouped = new Map<string, ClaudeThreadSummary[]>();
+  const folderGroups = useMemo<ThreadFolderGroupItem<AgentThreadSummary>[]>(() => {
+    const grouped = new Map<string, AgentThreadSummary[]>();
 
     for (const thread of threads) {
       const key = normalizeProjectPath(thread.projectPath);
@@ -298,6 +339,9 @@ function App() {
     }
     return normalizeProjectPath(selectedThread.projectPath);
   }, [selectedThread]);
+  const canUseUiComposer = selectedThread?.providerId === "claude_code";
+  const selectedProviderName = providerDisplayName(selectedThread?.providerId);
+  const selectedProviderAccent = providerAccentClass(selectedThread?.providerId);
 
   const displayedMessages = useMemo(() => {
     if (showToolEvents) {
@@ -333,7 +377,7 @@ function App() {
     setLoadingThreads(true);
     setError(null);
     try {
-      const data = await invoke<ClaudeThreadSummary[]>("list_claude_threads");
+      const data = await invoke<AgentThreadSummary[]>("list_threads");
       setThreads(data);
       setSelectedThreadId((current) => {
         const visibleThreads = data.filter(
@@ -353,9 +397,12 @@ function App() {
     }
   }, []);
 
-  const loadMessages = useCallback(async (threadId: string) => {
-    const data = await invoke<ClaudeThreadMessage[]>("get_claude_thread_messages", {
-      threadId,
+  const loadMessages = useCallback(async (threadId: string, providerId: string) => {
+    const data = await invoke<AgentThreadMessage[]>("get_thread_messages", {
+      request: {
+        threadId,
+        providerId,
+      },
     });
     return data;
   }, []);
@@ -393,6 +440,18 @@ function App() {
   }, [sidebarCollapsed]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(RIGHT_PANE_MODE_KEY, rightPaneMode);
+  }, [rightPaneMode]);
+
+  useEffect(() => {
+    if (rightPaneMode !== "ui") {
+      setLoadingMessages(false);
+      return;
+    }
+
     if (!selectedThreadId) {
       setMessages([]);
       return;
@@ -402,7 +461,14 @@ function App() {
     setLoadingMessages(true);
     setError(null);
 
-    void loadMessages(selectedThreadId)
+    const providerId = selectedThread?.providerId;
+    if (!providerId) {
+      setMessages([]);
+      setLoadingMessages(false);
+      return;
+    }
+
+    void loadMessages(selectedThreadId, providerId)
       .then((data) => {
         if (!active) {
           return;
@@ -426,7 +492,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [selectedThreadId, loadMessages]);
+  }, [loadMessages, rightPaneMode, selectedThread, selectedThreadId]);
 
   const handleSendMessage = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -441,6 +507,11 @@ function App() {
       }
 
       const optimisticMessage = makeLocalMessage("user", content);
+      if (selectedThread.providerId !== "claude_code") {
+        setError("UI send is currently supported for Claude Code only. Use Terminal mode for Codex.");
+        return;
+      }
+
       setMessages((current) => [...current, optimisticMessage]);
       setDraft("");
       setSending(true);
@@ -455,7 +526,7 @@ function App() {
           },
         });
 
-        const refreshed = await loadMessages(selectedThread.id);
+        const refreshed = await loadMessages(selectedThread.id, selectedThread.providerId);
         const hasResponse = refreshed.some(
           (message) =>
             message.role === "assistant" &&
@@ -516,6 +587,22 @@ function App() {
     });
   }, [clampSidebarWidth]);
 
+  const handleWindowDragStart = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("button,input,textarea,select,a,[data-no-drag]")) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void appWindow.startDragging();
+    },
+    [appWindow],
+  );
+
   useEffect(() => {
     if (!isResizingSidebar) {
       return;
@@ -550,19 +637,25 @@ function App() {
   }, [clampSidebarWidth, isResizingSidebar]);
 
   return (
-    <main className="h-full overflow-hidden bg-[radial-gradient(circle_at_8%_10%,hsl(var(--primary)/0.18),transparent_34%),radial-gradient(circle_at_88%_14%,hsl(148_48%_56%/0.15),transparent_30%),hsl(var(--background))] p-2.5">
+    <main className="relative h-full min-h-0 overflow-hidden bg-background">
+      <div
+        data-tauri-drag-region
+        onMouseDown={handleWindowDragStart}
+        className="absolute inset-x-0 top-0 z-20 cursor-grab select-none bg-transparent active:cursor-grabbing [-webkit-app-region:drag]"
+        style={{ height: WINDOW_DRAG_STRIP_HEIGHT }}
+      />
       <section
         ref={layoutRef}
-        className="grid h-full min-h-0 overflow-hidden"
+        className="grid h-full min-h-0 flex-1 overflow-hidden"
         style={layoutGridStyle}
       >
         {!sidebarCollapsed ? (
-          <Card className="flex min-h-0 flex-col border-0 bg-transparent shadow-none">
+          <Card className="flex min-h-0 flex-col rounded-none border-0 bg-card/92 pt-8 shadow-none">
             <CardHeader className="px-4 py-3 pb-2.5">
               <CardDescription className="text-[11px] uppercase tracking-[0.18em] text-primary/90">
                 AgentDock
               </CardDescription>
-              <CardTitle className="text-[22px] leading-none">Claude Console</CardTitle>
+              <CardTitle className="text-[22px] leading-none">Agent Console</CardTitle>
               <CardDescription className="text-xs">Thread switch + session relay</CardDescription>
               <div className="flex items-center gap-2 pt-1">
                 <Button variant="secondary" size="sm" className="h-7 px-2.5 text-xs" disabled>
@@ -592,11 +685,11 @@ function App() {
 
               {loadingThreads ? (
                 <p className="px-1.5 py-2 text-xs text-muted-foreground">
-                  Loading Claude threads...
+                  Loading threads...
                 </p>
               ) : threads.length === 0 ? (
                 <p className="px-1.5 py-2 text-xs text-muted-foreground">
-                  No sessions found in <code>~/.claude/projects</code>.
+                  No sessions found in <code>~/.claude/projects</code> or <code>~/.codex/sessions</code>.
                 </p>
               ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:hsl(var(--muted-foreground)/0.24)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-track]:border-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/25 [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:transition-colors [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/38 [&::-webkit-scrollbar-corner]:bg-transparent">
@@ -640,15 +733,25 @@ function App() {
 
         <Card
           className={cn(
-            "flex min-h-0 min-w-0 flex-col border-border/70 bg-card/95",
+            "flex min-h-0 min-w-0 flex-col rounded-none rounded-tl-xl border-0 bg-card shadow-none",
             sidebarCollapsed ? "col-start-1" : "col-start-3",
           )}
         >
           <CardHeader className="px-4 py-3 pb-2.5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-primary/90">
-                  claude_code
+                <p
+                  className={cn(
+                    "inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.16em]",
+                    selectedProviderAccent,
+                  )}
+                >
+                  {isCodexProvider(selectedThread?.providerId) ? (
+                    <SquareTerminal className="h-3.5 w-3.5" />
+                  ) : (
+                    <Bot className="h-3.5 w-3.5" />
+                  )}
+                  {selectedProviderName}
                 </p>
                 <CardTitle className="text-[22px] leading-none">
                   {selectedThread?.title ?? "Select a thread"}
@@ -659,8 +762,14 @@ function App() {
               </div>
 
               <div className="grid justify-items-end gap-1 text-xs text-muted-foreground">
-                <span>{loadingMessages ? "Syncing..." : "Ready"}</span>
-                <div className="flex items-center gap-2.5">
+                <span>
+                  {rightPaneMode === "terminal"
+                    ? "Embedded terminal"
+                    : loadingMessages
+                      ? "Syncing..."
+                      : "Ready"}
+                </span>
+                <div className="flex items-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -674,195 +783,256 @@ function App() {
                       <PanelLeftClose className="h-3.5 w-3.5" />
                     )}
                   </Button>
-                  <Switch
-                    id="show-tool-events"
-                    checked={showToolEvents}
-                    onCheckedChange={setShowToolEvents}
-                  />
-                  <label htmlFor="show-tool-events" className="cursor-pointer">
-                    Show steps
-                  </label>
-                  {toolCount > 0 ? (
-                    <Badge variant="outline" className="h-5 px-2 text-[10px]">
-                      {toolCount}
-                    </Badge>
+                  <div className="inline-flex items-center rounded-md border border-border/70 bg-muted/35 p-0.5">
+                    <Button
+                      type="button"
+                      variant={rightPaneMode === "terminal" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-[11px]"
+                      onClick={() => setRightPaneMode("terminal")}
+                    >
+                      <SquareTerminal className="h-3 w-3" />
+                      Terminal
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={rightPaneMode === "ui" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-[11px]"
+                      onClick={() => setRightPaneMode("ui")}
+                    >
+                      <Monitor className="h-3 w-3" />
+                      UI
+                    </Button>
+                  </div>
+                  {rightPaneMode === "ui" ? (
+                    <>
+                      <Switch
+                        id="show-tool-events"
+                        checked={showToolEvents}
+                        onCheckedChange={setShowToolEvents}
+                      />
+                      <label htmlFor="show-tool-events" className="cursor-pointer">
+                        Show steps
+                      </label>
+                      {toolCount > 0 ? (
+                        <Badge variant="outline" className="h-5 px-2 text-[10px]">
+                          {toolCount}
+                        </Badge>
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
-                <span>
-                  {displayedMessages.length}/{messages.length} messages
-                </span>
+                {rightPaneMode === "ui" ? (
+                  <span>
+                    {displayedMessages.length}/{messages.length} messages
+                  </span>
+                ) : (
+                  <span className="text-[11px]">Interactive CLI in-app</span>
+                )}
               </div>
             </div>
           </CardHeader>
           <Separator />
 
-          <CardContent className="min-h-0 flex-1 p-0">
-            <ScrollArea className="h-full px-5 py-3">
-              {error ? (
-                <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
-                  {error}
-                </div>
-              ) : null}
+          <CardContent
+            className={cn(
+              "min-h-0 flex-1",
+              "p-0",
+            )}
+          >
+            {rightPaneMode === "terminal" ? (
+              <div className="h-full w-full">
+                <EmbeddedTerminal
+                  thread={
+                    selectedThread
+                      ? {
+                          id: selectedThread.id,
+                          providerId: selectedThread.providerId,
+                          projectPath: selectedThread.projectPath,
+                        }
+                      : null
+                  }
+                  onError={setError}
+                />
+              </div>
+            ) : (
+              <ScrollArea className="h-full px-5 py-3">
+                {error ? (
+                  <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+                    {error}
+                  </div>
+                ) : null}
+                {selectedThread && !canUseUiComposer ? (
+                  <div className="mb-3 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs text-muted-foreground">
+                    Codex threads are read-only in UI mode for now. Use Terminal mode to continue chatting.
+                  </div>
+                ) : null}
 
-              {!selectedThread ? (
-                <p className="text-sm text-muted-foreground">
-                  Choose a thread from the left panel.
-                </p>
-              ) : loadingMessages ? (
-                <p className="text-sm text-muted-foreground">
-                  Loading conversation messages...
-                </p>
-              ) : displayedMessages.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No visible messages in this thread.
-                </p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {displayedMessages.map((message, index) => {
-                    const isTool = message.kind === "tool";
-                    const isUser = message.role === "user";
-                    const isLast = index === displayedMessages.length - 1;
-                    const toolParts = isTool
-                      ? splitToolMessage(message.content)
-                      : { headline: "", detail: undefined };
-                    const toolTitle = isTool
-                      ? parseToolTitle(toolParts.headline)
-                      : { strong: "", rest: undefined };
+                {!selectedThread ? (
+                  <p className="text-sm text-muted-foreground">
+                    Choose a thread from the left panel.
+                  </p>
+                ) : loadingMessages ? (
+                  <p className="text-sm text-muted-foreground">
+                    Loading conversation messages...
+                  </p>
+                ) : displayedMessages.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No visible messages in this thread.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {displayedMessages.map((message, index) => {
+                      const isTool = message.kind === "tool";
+                      const isUser = message.role === "user";
+                      const isLast = index === displayedMessages.length - 1;
+                      const toolParts = isTool
+                        ? splitToolMessage(message.content)
+                        : { headline: "", detail: undefined };
+                      const toolTitle = isTool
+                        ? parseToolTitle(toolParts.headline)
+                        : { strong: "", rest: undefined };
 
-                    return (
-                      <li
-                        key={`${message.role}-${message.kind}-${message.timestampMs ?? index}-${index}`}
-                        className="relative pl-8"
-                      >
-                        {!isLast ? (
-                          <span className="absolute left-[8px] top-3.5 h-[calc(100%+0.42rem)] w-px bg-border/75" />
-                        ) : null}
-                        <span
-                          className={cn(
-                            "absolute left-[4px] top-2 h-2.5 w-2.5 rounded-full border border-card shadow-sm",
-                            isTool
-                              ? "bg-emerald-500"
-                              : isUser
-                                ? "bg-primary/70"
-                                : "bg-slate-500/70",
-                          )}
-                        />
+                      return (
+                        <li
+                          key={`${message.role}-${message.kind}-${message.timestampMs ?? index}-${index}`}
+                          className="relative pl-8"
+                        >
+                          {!isLast ? (
+                            <span className="absolute left-[8px] top-3.5 h-[calc(100%+0.42rem)] w-px bg-border/75" />
+                          ) : null}
+                          <span
+                            className={cn(
+                              "absolute left-[4px] top-2 h-2.5 w-2.5 rounded-full border border-card shadow-sm",
+                              isTool
+                                ? "bg-emerald-500"
+                                : isUser
+                                  ? "bg-primary/70"
+                                  : "bg-slate-500/70",
+                            )}
+                          />
 
-                        {isTool ? (
-                          <article className="space-y-0.5 pb-0.5">
-                            <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-foreground">
-                              <span className="font-semibold">{toolTitle.strong}</span>
-                              {toolTitle.rest ? (
-                                <span className="text-muted-foreground">
-                                  {" "}
-                                  {toolTitle.rest}
-                                </span>
-                              ) : null}
-                            </p>
-                            {toolParts.detail ? (
-                              <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-muted-foreground">
-                                {toolParts.detail}
+                          {isTool ? (
+                            <article className="space-y-0.5 pb-0.5">
+                              <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-foreground">
+                                <span className="font-semibold">{toolTitle.strong}</span>
+                                {toolTitle.rest ? (
+                                  <span className="text-muted-foreground">
+                                    {" "}
+                                    {toolTitle.rest}
+                                  </span>
+                                ) : null}
                               </p>
-                            ) : null}
-                            {toolParts.ioLabel ? (
-                              <div className="mt-1 overflow-hidden rounded-md border border-border/80 bg-muted/35">
-                                <div className="border-b border-border/80 px-2 py-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
-                                  {toolParts.ioLabel}
+                              {toolParts.detail ? (
+                                <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-muted-foreground">
+                                  {toolParts.detail}
+                                </p>
+                              ) : null}
+                              {toolParts.ioLabel ? (
+                                <div className="mt-1 overflow-hidden rounded-md border border-border/80 bg-muted/35">
+                                  <div className="border-b border-border/80 px-2 py-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
+                                    {toolParts.ioLabel}
+                                  </div>
+                                  <pre className="max-h-48 overflow-auto px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground">
+                                    {normalizeCodeBody(toolParts.ioBody ?? "")}
+                                  </pre>
                                 </div>
-                                <pre className="max-h-48 overflow-auto px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground">
-                                  {normalizeCodeBody(toolParts.ioBody ?? "")}
-                                </pre>
-                              </div>
-                            ) : null}
-                          </article>
-                        ) : (
-                          <div className="space-y-0.5 pb-0.5">
-                            {isUser ? (
-                              <article className="inline-flex max-w-[84%] rounded-lg border border-border bg-secondary/70 px-2.5 py-1 shadow-sm">
-                                <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">
+                              ) : null}
+                            </article>
+                          ) : (
+                            <div className="space-y-0.5 pb-0.5">
+                              {isUser ? (
+                                <article className="inline-flex max-w-[84%] rounded-lg border border-border bg-secondary/70 px-2.5 py-1 shadow-sm">
+                                  <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">
+                                    {message.content}
+                                  </p>
+                                </article>
+                              ) : (
+                                <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground">
                                   {message.content}
                                 </p>
-                              </article>
-                            ) : (
-                              <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground">
-                                {message.content}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </ScrollArea>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </ScrollArea>
+            )}
           </CardContent>
 
-          <CardFooter className="p-2 pt-1">
-            <form onSubmit={handleSendMessage} className="w-full">
-              <div className="mx-auto w-full max-w-[980px] rounded-xl border border-primary/25 bg-card shadow-sm">
-                <Textarea
-                  value={draft}
-                  placeholder={
-                    selectedThread
-                      ? "⌘ Esc to focus or unfocus Claude"
-                      : "Select a thread first"
-                  }
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={handleComposerKeyDown}
-                  disabled={!selectedThread || sending}
-                  rows={2}
-                  className={cn(
-                    "min-h-[64px] max-h-[180px] resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0",
-                    "text-foreground",
-                  )}
-                />
-                <Separator />
-                <div className="flex items-center justify-between gap-2 bg-muted/35 px-2.5 py-2 text-muted-foreground">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted-foreground">
-                      <Pencil className="h-3.5 w-3.5" />
-                      Ask before edits
-                    </span>
-                    <span className="inline-flex min-w-0 max-w-[240px] items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted-foreground">
-                      <span className="font-mono text-[11px]">&lt;/&gt;</span>
-                      <span className="truncate">
-                        {selectedThread ? selectedThread.title : "thread"}
+          {rightPaneMode === "ui" ? (
+            <CardFooter className="p-2 pt-1">
+              <form onSubmit={handleSendMessage} className="w-full">
+                <div className="mx-auto w-full max-w-[980px] rounded-xl border border-primary/25 bg-card shadow-sm">
+                  <Textarea
+                    value={draft}
+                    placeholder={
+                      !selectedThread
+                        ? "Select a thread first"
+                        : !canUseUiComposer
+                          ? "Switch to Terminal mode for Codex input"
+                          : "⌘ Esc to focus or unfocus Claude"
+                    }
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={handleComposerKeyDown}
+                    disabled={!selectedThread || sending || !canUseUiComposer}
+                    rows={2}
+                    className={cn(
+                      "min-h-[64px] max-h-[180px] resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0",
+                      "text-foreground",
+                    )}
+                  />
+                  <Separator />
+                  <div className="flex items-center justify-between gap-2 bg-muted/35 px-2.5 py-2 text-muted-foreground">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted-foreground">
+                        <Pencil className="h-3.5 w-3.5" />
+                        Ask before edits
                       </span>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      disabled={!selectedThread || sending}
-                      className="h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                    >
-                      <Paperclip className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      disabled={!selectedThread || sending}
-                      className="h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                    >
-                      <Slash className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      type="submit"
-                      size="icon"
-                      disabled={!selectedThread || sending || !draft.trim()}
-                      className="h-8 w-8 rounded-lg border border-primary/40 bg-primary text-primary-foreground hover:bg-primary/90"
-                    >
-                      <ArrowUp className="h-3.5 w-3.5" />
-                    </Button>
+                      <span className="inline-flex min-w-0 max-w-[240px] items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted-foreground">
+                        <span className="font-mono text-[11px]">&lt;/&gt;</span>
+                        <span className="truncate">
+                          {selectedThread ? selectedThread.title : "thread"}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={!selectedThread || sending || !canUseUiComposer}
+                        className="h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <Paperclip className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={!selectedThread || sending || !canUseUiComposer}
+                        className="h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <Slash className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="submit"
+                        size="icon"
+                        disabled={!selectedThread || sending || !draft.trim() || !canUseUiComposer}
+                        className="h-8 w-8 rounded-lg border border-primary/40 bg-primary text-primary-foreground hover:bg-primary/90"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </form>
-          </CardFooter>
+              </form>
+            </CardFooter>
+          ) : null}
         </Card>
       </section>
     </main>

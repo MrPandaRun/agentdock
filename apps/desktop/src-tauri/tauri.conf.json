@@ -13,6 +13,9 @@
     "windows": [
       {
         "title": "AgentDock",
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "width": 1360,
         "height": 860,
         "minWidth": 980,

@@ -20,4 +20,6 @@ tauri-plugin-opener = "2"
 agentdock-core = { path = "../../../crates/agentdock-core" }
 provider-contract = { path = "../../../crates/provider-contract" }
 provider-claude = { path = "../../../crates/provider-claude" }
+provider-codex = { path = "../../../crates/provider-codex" }
+portable-pty = "0.8"
 serde = { workspace = true }

@@ -10,11 +10,14 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 const CLAUDE_CONFIG_DIR_ENV: &str = "AGENTDOCK_CLAUDE_CONFIG_DIR";
 const CLAUDE_BINARY_ENV: &str = "AGENTDOCK_CLAUDE_BIN";
 const MESSAGE_KIND_TEXT: &str = "text";
 const MESSAGE_KIND_TOOL: &str = "tool";
+const CLAUDE_AGENT_ACTIVITY_WINDOW_MS: i64 = 120_000;
 
 #[derive(Debug, Clone)]
 struct ThreadRecord {
@@ -54,6 +57,38 @@ pub struct ClaudeSendMessageResult {
     pub raw_output: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaudeThreadRuntimeState {
+    pub agent_answering: bool,
+    pub last_event_kind: Option<String>,
+    pub last_event_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClaudeSemanticEventKind {
+    UserMessage,
+    AgentReasoning,
+    AgentTool,
+    AgentProgress,
+    AgentMessage,
+    QueueDequeue,
+    TurnCompleted,
+}
+
+impl ClaudeSemanticEventKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            ClaudeSemanticEventKind::UserMessage => "user_message",
+            ClaudeSemanticEventKind::AgentReasoning => "agent_reasoning",
+            ClaudeSemanticEventKind::AgentTool => "agent_tool",
+            ClaudeSemanticEventKind::AgentProgress => "agent_progress",
+            ClaudeSemanticEventKind::AgentMessage => "agent_message",
+            ClaudeSemanticEventKind::QueueDequeue => "queue_dequeue",
+            ClaudeSemanticEventKind::TurnCompleted => "turn_completed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ClaudeAdapter {
     config_dir_override: Option<PathBuf>,
@@ -88,6 +123,14 @@ impl ClaudeAdapter {
                 collapsed: message.collapsed,
             })
             .collect())
+    }
+
+    pub fn get_thread_runtime_state(
+        &self,
+        thread_id: &str,
+    ) -> ProviderResult<ClaudeThreadRuntimeState> {
+        let thread_record = self.find_thread_record(thread_id)?;
+        Ok(load_thread_runtime_state(&thread_record.source_path))
     }
 
     pub fn list_thread_overviews(
@@ -634,10 +677,19 @@ fn extract_timestamp(value: &Value) -> Option<(String, i64)> {
                 let ms = normalize_epoch(parsed);
                 return Some((ms.to_string(), ms));
             }
+            if let Some(ms) = parse_rfc3339_timestamp_ms(trimmed) {
+                return Some((ms.to_string(), ms));
+            }
             Some((trimmed.to_string(), 0))
         }
         _ => None,
     }
+}
+
+fn parse_rfc3339_timestamp_ms(value: &str) -> Option<i64> {
+    let parsed = OffsetDateTime::parse(value, &Rfc3339).ok()?;
+    let nanos = parsed.unix_timestamp_nanos();
+    Some((nanos / 1_000_000) as i64)
 }
 
 fn normalize_epoch(raw: i64) -> i64 {
@@ -701,6 +753,213 @@ fn load_thread_messages(path: &Path) -> Vec<MessageRecord> {
     }
 
     messages
+}
+
+fn load_thread_runtime_state(path: &Path) -> ClaudeThreadRuntimeState {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => {
+            return ClaudeThreadRuntimeState {
+                agent_answering: false,
+                last_event_kind: None,
+                last_event_at_ms: None,
+            };
+        }
+    };
+    let reader = BufReader::new(file);
+    let mut last_kind: Option<ClaudeSemanticEventKind> = None;
+    let mut last_event_at_ms: Option<i64> = None;
+
+    for line in reader.lines().map_while(Result::ok) {
+        let parsed: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if let Some(kind) = extract_semantic_event_kind(&parsed) {
+            last_kind = Some(kind);
+            if let Some(timestamp_ms) = parse_timestamp_ms(&parsed) {
+                last_event_at_ms = Some(timestamp_ms);
+            }
+        }
+    }
+
+    let is_recent = last_event_at_ms
+        .map(|timestamp_ms| {
+            now_unix_millis().saturating_sub(timestamp_ms) <= CLAUDE_AGENT_ACTIVITY_WINDOW_MS
+        })
+        .unwrap_or(false);
+    let agent_answering = is_recent
+        && matches!(
+            last_kind,
+            Some(
+                ClaudeSemanticEventKind::AgentReasoning
+                    | ClaudeSemanticEventKind::AgentTool
+                    | ClaudeSemanticEventKind::AgentProgress
+                    | ClaudeSemanticEventKind::QueueDequeue
+            )
+        );
+
+    ClaudeThreadRuntimeState {
+        agent_answering,
+        last_event_kind: last_kind.map(|kind| kind.as_str().to_string()),
+        last_event_at_ms,
+    }
+}
+
+fn extract_semantic_event_kind(record: &Value) -> Option<ClaudeSemanticEventKind> {
+    if record.get("type").and_then(Value::as_str) == Some("queue-operation")
+        && record.get("operation").and_then(Value::as_str) == Some("dequeue")
+    {
+        return Some(ClaudeSemanticEventKind::QueueDequeue);
+    }
+
+    if record
+        .get("toolUseResult")
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)
+        == Some("completed")
+    {
+        return Some(ClaudeSemanticEventKind::TurnCompleted);
+    }
+
+    if record.get("type").and_then(Value::as_str) == Some("progress") {
+        if let Some(kind) = record
+            .get("data")
+            .and_then(extract_semantic_event_kind_from_progress)
+        {
+            return Some(kind);
+        }
+    }
+
+    let message = record.get("message")?;
+    let role_hint = record.get("type").and_then(Value::as_str);
+    extract_semantic_event_kind_from_message(message, role_hint)
+}
+
+fn extract_semantic_event_kind_from_progress(data: &Value) -> Option<ClaudeSemanticEventKind> {
+    if let Some(progress_message) = data.get("message") {
+        if let Some(message) = progress_message.get("message") {
+            let role_hint = progress_message.get("type").and_then(Value::as_str);
+            if let Some(kind) = extract_semantic_event_kind_from_message(message, role_hint) {
+                return Some(kind);
+            }
+        }
+    }
+
+    match data.get("type").and_then(Value::as_str) {
+        Some("bash_progress") | Some("hook_progress") => Some(ClaudeSemanticEventKind::AgentTool),
+        Some("agent_progress") => Some(ClaudeSemanticEventKind::AgentProgress),
+        Some(_) => Some(ClaudeSemanticEventKind::AgentProgress),
+        None => None,
+    }
+}
+
+fn extract_semantic_event_kind_from_message(
+    message: &Value,
+    role_hint: Option<&str>,
+) -> Option<ClaudeSemanticEventKind> {
+    let role = message
+        .get("role")
+        .and_then(Value::as_str)
+        .or(role_hint)
+        .unwrap_or("unknown");
+
+    let content = message.get("content");
+
+    if role == "assistant" {
+        if let Some(content) = content {
+            if has_content_block_type(content, &["thinking", "redacted_thinking"]) {
+                return Some(ClaudeSemanticEventKind::AgentReasoning);
+            }
+            if has_content_block_type(content, &["tool_use", "server_tool_use"]) {
+                return Some(ClaudeSemanticEventKind::AgentTool);
+            }
+            if has_visible_text_content(content) {
+                return Some(ClaudeSemanticEventKind::AgentMessage);
+            }
+        }
+
+        return Some(ClaudeSemanticEventKind::AgentMessage);
+    }
+
+    if role == "user" {
+        if let Some(content) = content {
+            if has_content_block_type(content, &["tool_result"]) {
+                return Some(ClaudeSemanticEventKind::AgentTool);
+            }
+            if has_visible_text_content(content) {
+                return Some(ClaudeSemanticEventKind::UserMessage);
+            }
+        }
+
+        return Some(ClaudeSemanticEventKind::UserMessage);
+    }
+
+    None
+}
+
+fn has_content_block_type(value: &Value, block_types: &[&str]) -> bool {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .any(|item| has_content_block_type(item, block_types)),
+        Value::Object(object) => {
+            if object
+                .get("type")
+                .and_then(Value::as_str)
+                .map(|value| block_types.contains(&value))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+
+            if let Some(content) = object.get("content") {
+                if has_content_block_type(content, block_types) {
+                    return true;
+                }
+            }
+
+            false
+        }
+        _ => false,
+    }
+}
+
+fn has_visible_text_content(value: &Value) -> bool {
+    match value {
+        Value::String(text) => !text.trim().is_empty(),
+        Value::Array(items) => items.iter().any(has_visible_text_content),
+        Value::Object(object) => {
+            if object
+                .get("type")
+                .and_then(Value::as_str)
+                .map(|value| value == "text" || value == "input_text" || value == "output_text")
+                .unwrap_or(false)
+            {
+                return object
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(|text| !text.trim().is_empty())
+                    .unwrap_or(false);
+            }
+
+            if let Some(text) = object.get("text").and_then(Value::as_str) {
+                if !text.trim().is_empty() {
+                    return true;
+                }
+            }
+
+            if let Some(content) = object.get("content") {
+                if has_visible_text_content(content) {
+                    return true;
+                }
+            }
+
+            false
+        }
+        _ => false,
+    }
 }
 
 fn parse_timestamp_ms(value: &Value) -> Option<i64> {
@@ -1131,6 +1390,14 @@ mod tests {
         fs::write(path, payload).expect("file should be writable");
     }
 
+    fn write_owned_lines(path: &Path, lines: &[String]) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent dir should be creatable");
+        }
+        let payload = format!("{}\n", lines.join("\n"));
+        fs::write(path, payload).expect("file should be writable");
+    }
+
     fn test_temp_dir(name: &str) -> PathBuf {
         let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
         let nanos = SystemTime::now()
@@ -1371,6 +1638,94 @@ mod tests {
         assert!(messages[2].content.contains("long command output"));
         assert_eq!(messages[3].role, "assistant");
         assert_eq!(messages[3].content, "Visible assistant answer");
+    }
+
+    #[test]
+    fn runtime_state_marks_recent_progress_as_answering() {
+        let config_dir = test_temp_dir("runtime-answering").join(".claude");
+        let session_path = config_dir.join("projects/demo/session-runtime.jsonl");
+        let now = now_unix_millis();
+
+        write_owned_lines(
+            &session_path,
+            &[
+                format!(
+                    r#"{{"sessionId":"session-runtime","cwd":"/workspace/demo","timestamp":{},"type":"user","message":{{"role":"user","content":[{{"type":"text","text":"hello"}}]}}}}"#,
+                    now - 5_000
+                ),
+                format!(
+                    r#"{{"sessionId":"session-runtime","cwd":"/workspace/demo","timestamp":{},"type":"progress","data":{{"type":"agent_progress","message":{{"type":"assistant","message":{{"role":"assistant","content":[{{"type":"tool_use","name":"Bash","input":{{"command":"ls"}}}}]}}}}}}}}"#,
+                    now - 1_500
+                ),
+            ],
+        );
+
+        let adapter = ClaudeAdapter::new().with_config_dir(&config_dir);
+        let state = adapter
+            .get_thread_runtime_state("session-runtime")
+            .expect("runtime state should be readable");
+
+        assert!(state.agent_answering);
+        assert_eq!(state.last_event_kind.as_deref(), Some("agent_tool"));
+    }
+
+    #[test]
+    fn runtime_state_marks_recent_assistant_text_as_not_answering() {
+        let config_dir = test_temp_dir("runtime-idle-text").join(".claude");
+        let session_path = config_dir.join("projects/demo/session-runtime-idle.jsonl");
+        let now = now_unix_millis();
+
+        write_owned_lines(
+            &session_path,
+            &[
+                format!(
+                    r#"{{"sessionId":"session-runtime-idle","cwd":"/workspace/demo","timestamp":{},"type":"progress","data":{{"type":"agent_progress","message":{{"type":"assistant","message":{{"role":"assistant","content":[{{"type":"tool_use","name":"Read","input":{{"file_path":"README.md"}}}}]}}}}}}}}"#,
+                    now - 4_000
+                ),
+                format!(
+                    r#"{{"sessionId":"session-runtime-idle","cwd":"/workspace/demo","timestamp":{},"type":"assistant","message":{{"role":"assistant","content":[{{"type":"text","text":"done"}}]}}}}"#,
+                    now - 1_000
+                ),
+            ],
+        );
+
+        let adapter = ClaudeAdapter::new().with_config_dir(&config_dir);
+        let state = adapter
+            .get_thread_runtime_state("session-runtime-idle")
+            .expect("runtime state should be readable");
+
+        assert!(!state.agent_answering);
+        assert_eq!(state.last_event_kind.as_deref(), Some("agent_message"));
+    }
+
+    #[test]
+    fn runtime_state_marks_old_progress_as_not_answering() {
+        let config_dir = test_temp_dir("runtime-old-progress").join(".claude");
+        let session_path = config_dir.join("projects/demo/session-runtime-old.jsonl");
+        let now = now_unix_millis();
+
+        write_owned_lines(
+            &session_path,
+            &[format!(
+                r#"{{"sessionId":"session-runtime-old","cwd":"/workspace/demo","timestamp":{},"type":"progress","data":{{"type":"bash_progress","output":"running..."}}}}"#,
+                now - 300_000
+            )],
+        );
+
+        let adapter = ClaudeAdapter::new().with_config_dir(&config_dir);
+        let state = adapter
+            .get_thread_runtime_state("session-runtime-old")
+            .expect("runtime state should be readable");
+
+        assert!(!state.agent_answering);
+        assert_eq!(state.last_event_kind.as_deref(), Some("agent_tool"));
+    }
+
+    #[test]
+    fn parse_timestamp_ms_supports_rfc3339() {
+        let value: Value = serde_json::from_str(r#"{"timestamp":"2026-02-12T10:00:00.000Z"}"#)
+            .expect("json should parse");
+        assert!(parse_timestamp_ms(&value).is_some());
     }
 
     #[test]

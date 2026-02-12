@@ -3,7 +3,8 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 use thiserror::Error;
 
-const MIGRATIONS: &[(&str, &str)] = &[("0001_init", include_str!("../../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(&str, &str)] =
+    &[("0001_init", include_str!("../../migrations/0001_init.sql"))];
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -103,7 +104,9 @@ mod tests {
         run_migrations(&mut conn).expect("second migration should be no-op");
 
         let applied: i64 = conn
-            .query_row("SELECT COUNT(1) FROM schema_migrations", [], |row| row.get(0))
+            .query_row("SELECT COUNT(1) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
             .expect("count query should succeed");
         assert_eq!(applied, 1);
     }

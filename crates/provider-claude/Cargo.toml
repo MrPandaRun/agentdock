@@ -7,3 +7,4 @@ description = "Claude Code adapter for AgentDock"
 [dependencies]
 provider-contract = { path = "../provider-contract" }
 serde_json = { workspace = true }
+time = { version = "0.3", features = ["parsing"] }
