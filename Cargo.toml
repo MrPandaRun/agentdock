@@ -5,6 +5,7 @@ members = [
     "crates/provider-contract",
     "crates/provider-codex",
     "crates/provider-claude",
+    "crates/provider-opencode",
     "crates/agentdock-core",
 ]
 

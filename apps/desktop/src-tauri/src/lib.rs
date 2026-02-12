@@ -6,6 +6,9 @@ use provider_claude::{
 use provider_codex::{
     CodexAdapter, CodexThreadMessage, CodexThreadOverview, CodexThreadRuntimeState,
 };
+use provider_opencode::{
+    OpenCodeAdapter, OpenCodeThreadMessage, OpenCodeThreadOverview, OpenCodeThreadRuntimeState,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -81,6 +84,20 @@ struct CodexThreadRuntimeStatePayload {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct GetOpenCodeThreadRuntimeStateRequest {
+    thread_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeThreadRuntimeStatePayload {
+    agent_answering: bool,
+    last_event_kind: Option<String>,
+    last_event_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SendClaudeMessageRequest {
     thread_id: String,
     content: String,
@@ -103,6 +120,13 @@ struct OpenThreadInTerminalRequest {
     project_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenNewThreadInTerminalRequest {
+    provider_id: String,
+    project_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenThreadInTerminalResponse {
@@ -115,6 +139,15 @@ struct OpenThreadInTerminalResponse {
 #[serde(rename_all = "camelCase")]
 struct StartEmbeddedTerminalRequest {
     thread_id: String,
+    provider_id: String,
+    project_path: Option<String>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StartNewEmbeddedTerminalRequest {
     provider_id: String,
     project_path: Option<String>,
     cols: Option<u16>,
@@ -192,10 +225,24 @@ async fn list_threads(project_path: Option<String>) -> Result<Vec<ThreadSummaryP
                     error.code, error.message
                 )
             })?;
+        let opencode_threads = OpenCodeAdapter::new()
+            .list_thread_overviews(project_path.as_deref())
+            .map_err(|error| {
+                format!(
+                    "Failed to list OpenCode threads ({:?}): {}",
+                    error.code, error.message
+                )
+            })?;
 
-        let mut threads = Vec::with_capacity(claude_threads.len() + codex_threads.len());
+        let mut threads =
+            Vec::with_capacity(claude_threads.len() + codex_threads.len() + opencode_threads.len());
         threads.extend(claude_threads.into_iter().map(map_claude_thread_overview));
         threads.extend(codex_threads.into_iter().map(map_codex_thread_overview));
+        threads.extend(
+            opencode_threads
+                .into_iter()
+                .map(map_opencode_thread_overview),
+        );
         threads.sort_by_key(|thread| {
             std::cmp::Reverse(sortable_last_active_at(&thread.last_active_at))
         });
@@ -237,6 +284,20 @@ async fn get_thread_messages(
             Ok(messages
                 .into_iter()
                 .map(map_codex_thread_message)
+                .collect::<Vec<ThreadMessagePayload>>())
+        }
+        "opencode" => {
+            let messages = OpenCodeAdapter::new()
+                .get_thread_messages(&request.thread_id)
+                .map_err(|error| {
+                    format!(
+                        "Failed to load OpenCode thread messages ({:?}): {}",
+                        error.code, error.message
+                    )
+                })?;
+            Ok(messages
+                .into_iter()
+                .map(map_opencode_thread_message)
                 .collect::<Vec<ThreadMessagePayload>>())
         }
         unsupported => Err(format!(
@@ -286,6 +347,25 @@ async fn get_claude_thread_runtime_state(
 }
 
 #[tauri::command]
+async fn get_opencode_thread_runtime_state(
+    request: GetOpenCodeThreadRuntimeStateRequest,
+) -> Result<OpenCodeThreadRuntimeStatePayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = OpenCodeAdapter::new()
+            .get_thread_runtime_state(&request.thread_id)
+            .map_err(|error| {
+                format!(
+                    "Failed to load OpenCode runtime state ({:?}): {}",
+                    error.code, error.message
+                )
+            })?;
+        Ok(map_opencode_thread_runtime_state(state))
+    })
+    .await
+    .map_err(|error| format!("Failed to load OpenCode runtime state: {error}"))?
+}
+
+#[tauri::command]
 async fn send_claude_message(
     request: SendClaudeMessageRequest,
 ) -> Result<SendClaudeMessageResponse, String> {
@@ -327,6 +407,26 @@ async fn open_thread_in_terminal(
 }
 
 #[tauri::command]
+async fn open_new_thread_in_terminal(
+    request: OpenNewThreadInTerminalRequest,
+) -> Result<OpenThreadInTerminalResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let command = build_new_thread_command_from_parts(
+            &request.provider_id,
+            request.project_path.as_deref(),
+        )?;
+        launch_in_terminal(&command)?;
+        Ok(OpenThreadInTerminalResponse {
+            launched: true,
+            command,
+            terminal_app: "Terminal".to_string(),
+        })
+    })
+    .await
+    .map_err(|error| format!("Failed to open new thread terminal session: {error}"))?
+}
+
+#[tauri::command]
 async fn start_embedded_terminal(
     app: tauri::AppHandle,
     request: StartEmbeddedTerminalRequest,
@@ -356,6 +456,37 @@ async fn start_embedded_terminal(
     })
     .await
     .map_err(|error| format!("Failed to start embedded terminal: {error}"))?
+}
+
+#[tauri::command]
+async fn start_new_embedded_terminal(
+    app: tauri::AppHandle,
+    request: StartNewEmbeddedTerminalRequest,
+) -> Result<StartEmbeddedTerminalResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cols = clamp_terminal_cols(request.cols);
+        let rows = clamp_terminal_rows(request.rows);
+        let command = build_new_thread_command_from_parts(
+            &request.provider_id,
+            request.project_path.as_deref(),
+        )?;
+        let session_id = next_embedded_terminal_session_id();
+        let (reader, session) = create_embedded_session(&command, cols, rows)?;
+        terminal_sessions()
+            .lock()
+            .map_err(|_| "Embedded terminal sessions lock poisoned".to_string())?
+            .insert(session_id.clone(), Arc::clone(&session));
+
+        spawn_terminal_output_reader(app.clone(), session_id.clone(), reader);
+        spawn_terminal_exit_watcher(app, session_id.clone(), session);
+
+        Ok(StartEmbeddedTerminalResponse {
+            session_id,
+            command,
+        })
+    })
+    .await
+    .map_err(|error| format!("Failed to start new embedded terminal: {error}"))?
 }
 
 #[tauri::command]
@@ -490,6 +621,18 @@ fn map_codex_thread_overview(overview: CodexThreadOverview) -> ThreadSummaryPayl
     }
 }
 
+fn map_opencode_thread_overview(overview: OpenCodeThreadOverview) -> ThreadSummaryPayload {
+    ThreadSummaryPayload {
+        id: overview.summary.id,
+        provider_id: overview.summary.provider_id.as_str().to_string(),
+        project_path: overview.summary.project_path,
+        title: overview.summary.title,
+        tags: overview.summary.tags,
+        last_active_at: overview.summary.last_active_at,
+        last_message_preview: overview.last_message_preview,
+    }
+}
+
 fn map_claude_thread_message(message: ClaudeThreadMessage) -> ThreadMessagePayload {
     ThreadMessagePayload {
         role: message.role,
@@ -510,10 +653,30 @@ fn map_codex_thread_message(message: CodexThreadMessage) -> ThreadMessagePayload
     }
 }
 
+fn map_opencode_thread_message(message: OpenCodeThreadMessage) -> ThreadMessagePayload {
+    ThreadMessagePayload {
+        role: message.role,
+        content: message.content,
+        timestamp_ms: message.timestamp_ms,
+        kind: message.kind,
+        collapsed: message.collapsed,
+    }
+}
+
 fn map_codex_thread_runtime_state(
     state: CodexThreadRuntimeState,
 ) -> CodexThreadRuntimeStatePayload {
     CodexThreadRuntimeStatePayload {
+        agent_answering: state.agent_answering,
+        last_event_kind: state.last_event_kind,
+        last_event_at_ms: state.last_event_at_ms,
+    }
+}
+
+fn map_opencode_thread_runtime_state(
+    state: OpenCodeThreadRuntimeState,
+) -> OpenCodeThreadRuntimeStatePayload {
+    OpenCodeThreadRuntimeStatePayload {
         agent_answering: state.agent_answering,
         last_event_kind: state.last_event_kind,
         last_event_at_ms: state.last_event_at_ms,
@@ -738,6 +901,7 @@ fn build_resume_command_from_parts(
     let resume = match provider_id {
         "claude_code" => format!("claude --resume {}", shell_quote(thread_id)),
         "codex" => format!("codex resume {}", shell_quote(thread_id)),
+        "opencode" => format!("opencode --session {}", shell_quote(thread_id)),
         _ => {
             return Err(format!(
                 "Unsupported provider for terminal launch: {}",
@@ -755,6 +919,33 @@ fn build_resume_command_from_parts(
     }
 
     Ok(resume)
+}
+
+fn build_new_thread_command_from_parts(
+    provider_id: &str,
+    project_path: Option<&str>,
+) -> Result<String, String> {
+    let start = match provider_id {
+        "claude_code" => "claude".to_string(),
+        "codex" => "codex".to_string(),
+        "opencode" => "opencode".to_string(),
+        _ => {
+            return Err(format!(
+                "Unsupported provider for new thread launch: {}",
+                provider_id
+            ));
+        }
+    };
+
+    let project_path = project_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty() && *path != ".");
+
+    if let Some(path) = project_path {
+        return Ok(format!("cd {} && {start}", shell_quote(path)));
+    }
+
+    Ok(start)
 }
 
 #[cfg(target_os = "macos")]
@@ -854,9 +1045,12 @@ pub fn run() {
             get_thread_messages,
             get_claude_thread_runtime_state,
             get_codex_thread_runtime_state,
+            get_opencode_thread_runtime_state,
             send_claude_message,
             open_thread_in_terminal,
+            open_new_thread_in_terminal,
             start_embedded_terminal,
+            start_new_embedded_terminal,
             write_embedded_terminal_input,
             resize_embedded_terminal,
             close_embedded_terminal

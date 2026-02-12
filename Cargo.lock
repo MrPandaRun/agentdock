@@ -25,6 +25,7 @@ dependencies = [
  "provider-claude",
  "provider-codex",
  "provider-contract",
+ "provider-opencode",
  "serde",
  "tauri",
  "tauri-build",
@@ -2885,6 +2886,14 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "provider-opencode"
+version = "0.1.0"
+dependencies = [
+ "provider-contract",
+ "serde_json",
 ]
 
 [[package]]

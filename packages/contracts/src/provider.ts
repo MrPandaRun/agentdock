@@ -1,4 +1,4 @@
-export type ProviderId = "codex" | "claude_code";
+export type ProviderId = "codex" | "claude_code" | "opencode";
 
 export type ProviderErrorCode =
   | "credential_missing"
@@ -68,4 +68,4 @@ export interface ProviderAdapter {
   summarizeSwitchContext(threadId: string): Promise<SwitchContextSummary>;
 }
 
-export const SUPPORTED_PROVIDERS: ProviderId[] = ["codex", "claude_code"];
+export const SUPPORTED_PROVIDERS: ProviderId[] = ["codex", "claude_code", "opencode"];

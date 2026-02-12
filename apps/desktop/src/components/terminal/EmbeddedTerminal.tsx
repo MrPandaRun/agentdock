@@ -13,6 +13,13 @@ export interface EmbeddedTerminalThread {
   projectPath: string;
 }
 
+export interface EmbeddedTerminalNewThreadLaunch {
+  launchId: number;
+  providerId: string;
+  projectPath: string;
+  knownThreadIds: string[];
+}
+
 interface StartEmbeddedTerminalResponse {
   sessionId: string;
   command: string;
@@ -36,12 +43,15 @@ interface ThreadRuntimeState {
 
 interface EmbeddedTerminalProps {
   thread: EmbeddedTerminalThread | null;
+  launchRequest?: EmbeddedTerminalNewThreadLaunch | null;
+  onLaunchRequestSettled?: (launch: EmbeddedTerminalNewThreadLaunch) => void;
   onError?: (message: string | null) => void;
 }
 
 interface TerminalSessionState {
   threadKey: string;
-  threadId: string;
+  threadId: string | null;
+  runtimeThreadId: string | null;
   providerId: string;
   sessionId: string;
   command: string;
@@ -53,7 +63,29 @@ interface TerminalSessionState {
 
 const SESSION_BUFFER_MAX_CHARS = 800_000;
 
-export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
+type SessionLaunchTarget =
+  | {
+      mode: "resume";
+      key: string;
+      threadId: string;
+      providerId: string;
+      projectPath: string;
+    }
+  | {
+      mode: "new";
+      key: string;
+      launchId: number;
+      providerId: string;
+      projectPath: string;
+      knownThreadIds: string[];
+    };
+
+export function EmbeddedTerminal({
+  thread,
+  launchRequest,
+  onLaunchRequestSettled,
+  onError,
+}: EmbeddedTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -73,6 +105,29 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
     }
     return `${thread.providerId}:${thread.id}:${thread.projectPath}`;
   }, [thread]);
+
+  const launchTarget = useMemo<SessionLaunchTarget | null>(() => {
+    if (launchRequest) {
+      return {
+        mode: "new",
+        key: `new:${launchRequest.launchId}`,
+        launchId: launchRequest.launchId,
+        providerId: launchRequest.providerId,
+        projectPath: launchRequest.projectPath,
+        knownThreadIds: launchRequest.knownThreadIds,
+      };
+    }
+    if (!thread || !threadKey) {
+      return null;
+    }
+    return {
+      mode: "resume",
+      key: threadKey,
+      threadId: thread.id,
+      providerId: thread.providerId,
+      projectPath: thread.projectPath,
+    };
+  }, [launchRequest, thread, threadKey]);
 
   const queueRemoteResize = useCallback(
     (cols: number, rows: number) => {
@@ -155,28 +210,38 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
         if (session.threadKey === activeThreadKey) {
           continue;
         }
-        if (session.hasUserInput) {
-          continue;
-        }
         if (cleanupCheckInFlightRef.current.has(session.sessionId)) {
           continue;
         }
+        if (!session.runtimeThreadId) {
+          void closeSessionById(session.sessionId);
+          continue;
+        }
+        if (session.hasUserInput) {
+          continue;
+        }
 
-        if (session.providerId !== "codex" && session.providerId !== "claude_code") {
+        if (
+          session.providerId !== "codex" &&
+          session.providerId !== "claude_code" &&
+          session.providerId !== "opencode"
+        ) {
           void closeSessionById(session.sessionId);
           continue;
         }
 
         cleanupCheckInFlightRef.current.add(session.sessionId);
         const sessionId = session.sessionId;
-        const threadId = session.threadId;
+        const threadId = session.runtimeThreadId;
         const providerId = session.providerId;
         void (async () => {
           try {
             const command =
               providerId === "claude_code"
                 ? "get_claude_thread_runtime_state"
-                : "get_codex_thread_runtime_state";
+                : providerId === "codex"
+                  ? "get_codex_thread_runtime_state"
+                  : "get_opencode_thread_runtime_state";
             const state = await invoke<ThreadRuntimeState>(command, {
               request: { threadId },
             });
@@ -496,7 +561,7 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
       terminal.reset();
       terminal.clear();
 
-      if (!thread || !threadKey) {
+      if (!launchTarget) {
         sessionIdRef.current = null;
         terminal.writeln("Select a thread from the left panel.");
         cleanupDormantSessions(null);
@@ -505,7 +570,7 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
         return;
       }
 
-      const existing = sessionsByThreadRef.current.get(threadKey);
+      const existing = sessionsByThreadRef.current.get(launchTarget.key);
       if (existing) {
         const snapshot = existing.buffer;
         if (snapshot) {
@@ -515,7 +580,7 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
         setLastCommand(existing.command);
         terminal.focus();
         queueRemoteResize(terminal.cols, terminal.rows);
-        cleanupDormantSessions(threadKey);
+        cleanupDormantSessions(launchTarget.key);
         setStarting(false);
         setIsSwitchingThread(false);
         return;
@@ -524,18 +589,25 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
       setStarting(true);
 
       try {
-        const response = await invoke<StartEmbeddedTerminalResponse>(
-          "start_embedded_terminal",
-          {
-            request: {
-              threadId: thread.id,
-              providerId: thread.providerId,
-              projectPath: thread.projectPath,
-              cols: Math.max(40, terminal.cols || 120),
-              rows: Math.max(12, terminal.rows || 36),
-            },
-          },
-        );
+        const response =
+          launchTarget.mode === "resume"
+            ? await invoke<StartEmbeddedTerminalResponse>("start_embedded_terminal", {
+                request: {
+                  threadId: launchTarget.threadId,
+                  providerId: launchTarget.providerId,
+                  projectPath: launchTarget.projectPath,
+                  cols: Math.max(40, terminal.cols || 120),
+                  rows: Math.max(12, terminal.rows || 36),
+                },
+              })
+            : await invoke<StartEmbeddedTerminalResponse>("start_new_embedded_terminal", {
+                request: {
+                  providerId: launchTarget.providerId,
+                  projectPath: launchTarget.projectPath,
+                  cols: Math.max(40, terminal.cols || 120),
+                  rows: Math.max(12, terminal.rows || 36),
+                },
+              });
 
         if (cancelled) {
           await invoke("close_embedded_terminal", {
@@ -547,9 +619,10 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
         }
 
         const session: TerminalSessionState = {
-          threadKey,
-          threadId: thread.id,
-          providerId: thread.providerId,
+          threadKey: launchTarget.key,
+          threadId: launchTarget.mode === "resume" ? launchTarget.threadId : null,
+          runtimeThreadId: launchTarget.mode === "resume" ? launchTarget.threadId : null,
+          providerId: launchTarget.providerId,
           sessionId: response.sessionId,
           command: response.command,
           buffer: "",
@@ -557,7 +630,7 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
           hasUserInput: false,
           lastTouchedAt: Date.now(),
         };
-        sessionsByThreadRef.current.set(threadKey, session);
+        sessionsByThreadRef.current.set(launchTarget.key, session);
         sessionsByIdRef.current.set(response.sessionId, session);
         sessionIdRef.current = response.sessionId;
         setLastCommand(response.command);
@@ -566,11 +639,19 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
         terminal.write(launchBanner);
         terminal.focus();
         queueRemoteResize(terminal.cols, terminal.rows);
-        cleanupDormantSessions(threadKey);
+        cleanupDormantSessions(launchTarget.key);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         onError?.(message);
       } finally {
+        if (launchTarget.mode === "new") {
+          onLaunchRequestSettled?.({
+            launchId: launchTarget.launchId,
+            providerId: launchTarget.providerId,
+            projectPath: launchTarget.projectPath,
+            knownThreadIds: launchTarget.knownThreadIds,
+          });
+        }
         if (!cancelled) {
           setStarting(false);
           setIsSwitchingThread(false);
@@ -587,10 +668,10 @@ export function EmbeddedTerminal({ thread, onError }: EmbeddedTerminalProps) {
   }, [
     appendSessionBuffer,
     cleanupDormantSessions,
+    launchTarget,
     onError,
+    onLaunchRequestSettled,
     queueRemoteResize,
-    thread,
-    threadKey,
   ]);
 
   return (

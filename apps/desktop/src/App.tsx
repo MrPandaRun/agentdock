@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ArrowUp,
   Bot,
+  Code2,
   Monitor,
   PanelLeftClose,
   PanelLeftOpen,
@@ -26,7 +27,10 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { EmbeddedTerminal } from "@/components/terminal/EmbeddedTerminal";
+import {
+  EmbeddedTerminal,
+  type EmbeddedTerminalNewThreadLaunch,
+} from "@/components/terminal/EmbeddedTerminal";
 import {
   ThreadFolderGroup,
   type ThreadFolderGroupItem,
@@ -84,6 +88,7 @@ const MAX_SIDEBAR_WIDTH = 520;
 const WINDOW_DRAG_STRIP_HEIGHT = 32;
 
 type RightPaneMode = "terminal" | "ui";
+type ThreadProviderId = "claude_code" | "codex" | "opencode";
 
 function readStoredSidebarWidth(): number {
   if (typeof window === "undefined") {
@@ -165,13 +170,57 @@ function threadPreview(thread: Pick<AgentThreadSummary, "title" | "lastMessagePr
   return thread.title;
 }
 
+function resolveSelectedThreadId(
+  threads: AgentThreadSummary[],
+  current: string | null,
+): string | null {
+  const visibleThreads = threads.filter(
+    (thread) => normalizeProjectPath(thread.projectPath) !== ".",
+  );
+  if (current && visibleThreads.some((thread) => thread.id === current)) {
+    return current;
+  }
+  return visibleThreads[0]?.id ?? threads[0]?.id ?? null;
+}
+
+function pickCreatedThread(
+  threads: AgentThreadSummary[],
+  launch: EmbeddedTerminalNewThreadLaunch,
+): AgentThreadSummary | null {
+  const normalizedProjectPath = normalizeProjectPath(launch.projectPath);
+  const matches = threads.filter(
+    (thread) =>
+      thread.providerId === launch.providerId &&
+      normalizeProjectPath(thread.projectPath) === normalizedProjectPath,
+  );
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const knownIds = new Set(launch.knownThreadIds);
+  const freshMatches = matches.filter((thread) => !knownIds.has(thread.id));
+  const candidates = freshMatches.length > 0 ? freshMatches : matches;
+  return (
+    [...candidates].sort(
+      (a, b) => sortableTimestamp(b.lastActiveAt) - sortableTimestamp(a.lastActiveAt),
+    )[0] ?? null
+  );
+}
+
 function isCodexProvider(providerId?: string): boolean {
   return providerId === "codex";
+}
+
+function isOpenCodeProvider(providerId?: string): boolean {
+  return providerId === "opencode";
 }
 
 function providerDisplayName(providerId?: string): string {
   if (providerId === "codex") {
     return "Codex";
+  }
+  if (providerId === "opencode") {
+    return "OpenCode";
   }
   if (providerId === "claude_code") {
     return "Claude Code";
@@ -180,9 +229,13 @@ function providerDisplayName(providerId?: string): string {
 }
 
 function providerAccentClass(providerId?: string): string {
-  return isCodexProvider(providerId)
-    ? "text-[hsl(var(--brand-codex))]"
-    : "text-[hsl(var(--brand-claude))]";
+  if (isCodexProvider(providerId)) {
+    return "text-[hsl(var(--brand-codex))]";
+  }
+  if (isOpenCodeProvider(providerId)) {
+    return "text-[hsl(var(--brand-opencode))]";
+  }
+  return "text-[hsl(var(--brand-claude))]";
 }
 
 function splitToolMessage(content: string): ToolMessageParts {
@@ -287,6 +340,12 @@ function App() {
     readStoredRightPaneMode,
   );
   const [error, setError] = useState<string | null>(null);
+  const [creatingThreadFolderKey, setCreatingThreadFolderKey] = useState<string | null>(
+    null,
+  );
+  const [newThreadLaunch, setNewThreadLaunch] = useState<EmbeddedTerminalNewThreadLaunch | null>(
+    null,
+  );
   const [sidebarWidth, setSidebarWidth] = useState<number>(readStoredSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(
     readStoredSidebarCollapsed,
@@ -295,6 +354,7 @@ function App() {
   const layoutRef = useRef<HTMLElement | null>(null);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const dragRegionRef = useRef<HTMLDivElement>(null);
+  const pendingNewThreadLaunchIdRef = useRef<number | null>(null);
   const appWindow = useMemo(() => getCurrentWindow(), []);
 
   const selectedThread = useMemo(
@@ -341,8 +401,20 @@ function App() {
     return normalizeProjectPath(selectedThread.projectPath);
   }, [selectedThread]);
   const canUseUiComposer = selectedThread?.providerId === "claude_code";
-  const selectedProviderName = providerDisplayName(selectedThread?.providerId);
-  const selectedProviderAccent = providerAccentClass(selectedThread?.providerId);
+  const headerProviderId =
+    rightPaneMode === "terminal" && newThreadLaunch
+      ? newThreadLaunch.providerId
+      : selectedThread?.providerId;
+  const headerTitle =
+    rightPaneMode === "terminal" && newThreadLaunch
+      ? `New ${providerDisplayName(newThreadLaunch.providerId)} thread`
+      : (selectedThread?.title ?? "Select a thread");
+  const headerProjectPath =
+    rightPaneMode === "terminal" && newThreadLaunch
+      ? newThreadLaunch.projectPath
+      : (selectedThread?.projectPath ?? "-");
+  const headerProviderName = providerDisplayName(headerProviderId);
+  const headerProviderAccent = providerAccentClass(headerProviderId);
 
   const displayedMessages = useMemo(() => {
     if (showToolEvents) {
@@ -380,15 +452,7 @@ function App() {
     try {
       const data = await invoke<AgentThreadSummary[]>("list_threads");
       setThreads(data);
-      setSelectedThreadId((current) => {
-        const visibleThreads = data.filter(
-          (thread) => normalizeProjectPath(thread.projectPath) !== ".",
-        );
-        if (current && visibleThreads.some((thread) => thread.id === current)) {
-          return current;
-        }
-        return visibleThreads[0]?.id ?? data[0]?.id ?? null;
-      });
+      setSelectedThreadId((current) => resolveSelectedThreadId(data, current));
     } catch (loadError) {
       const message =
         loadError instanceof Error ? loadError.message : String(loadError);
@@ -408,9 +472,101 @@ function App() {
     return data;
   }, []);
 
+  const handleCreateThreadInFolder = useCallback(
+    async (projectPath: string, providerId: ThreadProviderId) => {
+      const launchId = Date.now();
+      setCreatingThreadFolderKey(projectPath);
+      setError(null);
+      setRightPaneMode("terminal");
+      pendingNewThreadLaunchIdRef.current = launchId;
+      setNewThreadLaunch({
+        launchId,
+        providerId,
+        projectPath,
+        knownThreadIds: threads.map((thread) => thread.id),
+      });
+    },
+    [threads],
+  );
+
+  const handleSelectThread = useCallback((threadId: string) => {
+    pendingNewThreadLaunchIdRef.current = null;
+    setCreatingThreadFolderKey(null);
+    setNewThreadLaunch(null);
+    setSelectedThreadId(threadId);
+  }, []);
+
+  const handleNewThreadLaunchSettled = useCallback(
+    (launch: EmbeddedTerminalNewThreadLaunch) => {
+      const retryDelaysMs = [350, 700, 1000, 1200];
+
+      const settle = () => {
+        const isActiveLaunch = pendingNewThreadLaunchIdRef.current === launch.launchId;
+        if (isActiveLaunch) {
+          pendingNewThreadLaunchIdRef.current = null;
+        }
+        setCreatingThreadFolderKey((current) => {
+          if (!isActiveLaunch) {
+            return current;
+          }
+          return current === launch.projectPath ? null : current;
+        });
+        setNewThreadLaunch((current) =>
+          current?.launchId === launch.launchId ? null : current,
+        );
+      };
+
+      void (async () => {
+        try {
+          for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+            if (pendingNewThreadLaunchIdRef.current !== launch.launchId) {
+              return;
+            }
+
+            const data = await invoke<AgentThreadSummary[]>("list_threads");
+            const createdThread = pickCreatedThread(data, launch);
+            setThreads(data);
+
+            if (createdThread) {
+              setSelectedThreadId(createdThread.id);
+              settle();
+              return;
+            }
+
+            setSelectedThreadId((current) => resolveSelectedThreadId(data, current));
+
+            if (attempt < retryDelaysMs.length) {
+              await new Promise((resolve) => {
+                window.setTimeout(resolve, retryDelaysMs[attempt]);
+              });
+            }
+          }
+        } catch (refreshError) {
+          if (pendingNewThreadLaunchIdRef.current === launch.launchId) {
+            const message =
+              refreshError instanceof Error ? refreshError.message : String(refreshError);
+            setError(message);
+          }
+        } finally {
+          settle();
+        }
+      })();
+    },
+    [],
+  );
+
   useEffect(() => {
     void loadThreads();
   }, [loadThreads]);
+
+  useEffect(() => {
+    if (rightPaneMode === "terminal") {
+      return;
+    }
+    pendingNewThreadLaunchIdRef.current = null;
+    setNewThreadLaunch(null);
+    setCreatingThreadFolderKey(null);
+  }, [rightPaneMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -509,7 +665,9 @@ function App() {
 
       const optimisticMessage = makeLocalMessage("user", content);
       if (selectedThread.providerId !== "claude_code") {
-        setError("UI send is currently supported for Claude Code only. Use Terminal mode for Codex.");
+        setError(
+          "UI send is currently supported for Claude Code only. Use Terminal mode for Codex/OpenCode.",
+        );
         return;
       }
 
@@ -699,7 +857,8 @@ function App() {
                 </p>
               ) : threads.length === 0 ? (
                 <p className="px-1.5 py-2 text-xs text-muted-foreground">
-                  No sessions found in <code>~/.claude/projects</code> or <code>~/.codex/sessions</code>.
+                  No sessions found in <code>~/.claude/projects</code>, <code>~/.codex/sessions</code>, or{" "}
+                  <code>~/.local/share/opencode/storage/session</code>.
                 </p>
               ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto">
@@ -727,7 +886,9 @@ function App() {
                         group={group}
                         isActiveFolder={group.key === selectedFolderKey}
                         selectedThreadId={selectedThreadId}
-                        onSelectThread={setSelectedThreadId}
+                        onSelectThread={handleSelectThread}
+                        onCreateThread={handleCreateThreadInFolder}
+                        isCreatingThread={creatingThreadFolderKey === group.key}
                         formatLastActive={formatLastActive}
                         getPreview={threadPreview}
                       />
@@ -771,21 +932,21 @@ function App() {
                 <p
                   className={cn(
                     "inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.16em]",
-                    selectedProviderAccent,
+                    headerProviderAccent,
                   )}
                 >
-                  {isCodexProvider(selectedThread?.providerId) ? (
+                  {isCodexProvider(headerProviderId) ? (
                     <SquareTerminal className="h-3.5 w-3.5" />
+                  ) : isOpenCodeProvider(headerProviderId) ? (
+                    <Code2 className="h-3.5 w-3.5" />
                   ) : (
                     <Bot className="h-3.5 w-3.5" />
                   )}
-                  {selectedProviderName}
+                  {headerProviderName}
                 </p>
-                <CardTitle className="text-[22px] leading-none">
-                  {selectedThread?.title ?? "Select a thread"}
-                </CardTitle>
+                <CardTitle className="text-[22px] leading-none">{headerTitle}</CardTitle>
                 <CardDescription className="truncate text-xs">
-                  {selectedThread?.projectPath ?? "-"}
+                  {headerProjectPath}
                 </CardDescription>
               </div>
 
@@ -873,7 +1034,13 @@ function App() {
               <div className="h-full w-full">
                 <EmbeddedTerminal
                   thread={
-                    selectedThread
+                    newThreadLaunch
+                      ? {
+                          id: `__new__:${newThreadLaunch.launchId}`,
+                          providerId: newThreadLaunch.providerId,
+                          projectPath: newThreadLaunch.projectPath,
+                        }
+                      : selectedThread
                       ? {
                           id: selectedThread.id,
                           providerId: selectedThread.providerId,
@@ -881,6 +1048,8 @@ function App() {
                         }
                       : null
                   }
+                  launchRequest={newThreadLaunch}
+                  onLaunchRequestSettled={handleNewThreadLaunchSettled}
                   onError={setError}
                 />
               </div>
@@ -893,7 +1062,7 @@ function App() {
                 ) : null}
                 {selectedThread && !canUseUiComposer ? (
                   <div className="mb-3 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs text-muted-foreground">
-                    Codex threads are read-only in UI mode for now. Use Terminal mode to continue chatting.
+                    Non-Claude threads are read-only in UI mode for now. Use Terminal mode to continue chatting.
                   </div>
                 ) : null}
 

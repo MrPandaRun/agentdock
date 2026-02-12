@@ -7,7 +7,7 @@ import {
 
 describe("provider contract", () => {
   test("includes V1 provider ids", () => {
-    expect(SUPPORTED_PROVIDERS).toEqual(["codex", "claude_code"]);
+    expect(SUPPORTED_PROVIDERS).toEqual(["codex", "claude_code", "opencode"]);
   });
 
   test("health check payload shape is stable", () => {

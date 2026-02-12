@@ -1,4 +1,4 @@
-import { Bot, SquareTerminal } from "lucide-react";
+import { Bot, Code2, SquareTerminal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -26,6 +26,7 @@ export function ThreadListItem<T extends ThreadListThreadItem>({
   getPreview,
 }: ThreadListItemProps<T>) {
   const isCodex = thread.providerId === "codex";
+  const isOpenCode = thread.providerId === "opencode";
 
   return (
     <li className="w-full min-w-0">
@@ -43,12 +44,18 @@ export function ThreadListItem<T extends ThreadListThreadItem>({
             <span
               className={cn(
                 "mt-[1px] inline-flex shrink-0 items-center justify-center rounded-sm",
-                isCodex ? "text-[hsl(var(--brand-codex))]" : "text-[hsl(var(--brand-claude))]",
+                isCodex
+                  ? "text-[hsl(var(--brand-codex))]"
+                  : isOpenCode
+                    ? "text-[hsl(var(--brand-opencode))]"
+                    : "text-[hsl(var(--brand-claude))]",
               )}
               aria-hidden
             >
               {isCodex ? (
                 <SquareTerminal className="h-3.5 w-3.5" />
+              ) : isOpenCode ? (
+                <Code2 className="h-3.5 w-3.5" />
               ) : (
                 <Bot className="h-3.5 w-3.5" />
               )}

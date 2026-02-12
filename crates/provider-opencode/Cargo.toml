@@ -1,0 +1,9 @@
+[package]
+name = "provider-opencode"
+version = "0.1.0"
+edition = "2021"
+description = "OpenCode adapter for AgentDock"
+
+[dependencies]
+provider-contract = { path = "../provider-contract" }
+serde_json = { workspace = true }

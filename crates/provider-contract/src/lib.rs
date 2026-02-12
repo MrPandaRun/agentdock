@@ -8,6 +8,8 @@ pub type ProviderResult<T> = Result<T, ProviderError>;
 pub enum ProviderId {
     Codex,
     ClaudeCode,
+    #[serde(rename = "opencode")]
+    OpenCode,
 }
 
 impl ProviderId {
@@ -15,6 +17,7 @@ impl ProviderId {
         match self {
             ProviderId::Codex => "codex",
             ProviderId::ClaudeCode => "claude_code",
+            ProviderId::OpenCode => "opencode",
         }
     }
 }
