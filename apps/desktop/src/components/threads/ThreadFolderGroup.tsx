@@ -5,7 +5,7 @@ import {
   Code2,
   Folder,
   Loader2,
-  Pencil,
+  SquarePen,
   SquareTerminal,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -120,12 +120,12 @@ export function ThreadFolderGroup<T extends ThreadListThreadItem>({
               {isCreatingThread ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
-                <Pencil className="h-3 w-3" />
+                <SquarePen className="h-3 w-3" />
               )}
             </button>
 
             {menuOpen ? (
-              <div className="absolute right-0 top-6 z-30 min-w-[162px] overflow-hidden rounded-md border border-border bg-popover p-1 shadow-lg">
+              <div className="absolute right-0 top-6 z-30 min-w-[162px] overflow-hidden rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg">
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:bg-accent"
