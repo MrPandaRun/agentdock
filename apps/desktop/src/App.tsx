@@ -292,9 +292,10 @@ function App() {
     readStoredSidebarCollapsed,
   );
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
-  const appWindow = useMemo(() => getCurrentWindow(), []);
   const layoutRef = useRef<HTMLElement | null>(null);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const dragRegionRef = useRef<HTMLDivElement>(null);
+  const appWindow = useMemo(() => getCurrentWindow(), []);
 
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.id === selectedThreadId) ?? null,
@@ -587,21 +588,29 @@ function App() {
     });
   }, [clampSidebarWidth]);
 
-  const handleWindowDragStart = useCallback(
-    (event: ReactMouseEvent<HTMLDivElement>) => {
+  // Set up window drag region using native event listeners
+  // This is a workaround for Tauri 2.x macOS overlay titlebar issue
+  // See: https://github.com/tauri-apps/tauri/issues/9503
+  useEffect(() => {
+    const dragRegion = dragRegionRef.current;
+    if (!dragRegion) {
+      return;
+    }
+
+    const handleMouseDown = async (event: MouseEvent) => {
+      // Only allow left mouse button
       if (event.button !== 0) {
         return;
       }
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("button,input,textarea,select,a,[data-no-drag]")) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
+      // Start dragging the window
       void appWindow.startDragging();
-    },
-    [appWindow],
-  );
+    };
+
+    dragRegion.addEventListener("mousedown", handleMouseDown);
+    return () => {
+      dragRegion.removeEventListener("mousedown", handleMouseDown);
+    };
+  }, [appWindow]);
 
   useEffect(() => {
     if (!isResizingSidebar) {
@@ -638,10 +647,11 @@ function App() {
 
   return (
     <main className="relative h-full min-h-0 overflow-hidden bg-background">
+      {/* Drag region for window movement - workaround for Tauri 2.x macOS overlay issue */}
       <div
-        data-tauri-drag-region
-        onMouseDown={handleWindowDragStart}
-        className="absolute inset-x-0 top-0 z-20 cursor-grab select-none bg-transparent active:cursor-grabbing [-webkit-app-region:drag]"
+        ref={dragRegionRef}
+        data-window-drag-region="true"
+        className="absolute left-0 right-0 top-0 z-[9999] select-none"
         style={{ height: WINDOW_DRAG_STRIP_HEIGHT }}
       />
       <section
@@ -650,7 +660,7 @@ function App() {
         style={layoutGridStyle}
       >
         {!sidebarCollapsed ? (
-          <Card className="flex min-h-0 flex-col rounded-none border-0 bg-card/92 pt-8 shadow-none">
+          <Card className="flex min-h-0 flex-col rounded-none border-0 bg-card/92 shadow-none pt-8">
             <CardHeader className="px-4 py-3 pb-2.5">
               <CardDescription className="text-[11px] uppercase tracking-[0.18em] text-primary/90">
                 AgentDock
@@ -692,7 +702,24 @@ function App() {
                   No sessions found in <code>~/.claude/projects</code> or <code>~/.codex/sessions</code>.
                 </p>
               ) : (
-                <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:hsl(var(--muted-foreground)/0.24)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-track]:border-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/25 [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:transition-colors [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/38 [&::-webkit-scrollbar-corner]:bg-transparent">
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <style>{`
+                    .sidebar-scroll::-webkit-scrollbar {
+                      width: 6px;
+                    }
+                    .sidebar-scroll::-webkit-scrollbar-track {
+                      background: transparent;
+                      border: none;
+                    }
+                    .sidebar-scroll::-webkit-scrollbar-thumb {
+                      background: hsl(var(--muted-foreground) / 0.4);
+                      border-radius: 3px;
+                    }
+                    .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+                      background: hsl(var(--muted-foreground) / 0.6);
+                    }
+                  `}</style>
+                  <div className="sidebar-scroll h-full">
                   <ul className="w-full space-y-2 pb-1.5">
                     {folderGroups.map((group) => (
                       <ThreadFolderGroup
@@ -706,6 +733,7 @@ function App() {
                       />
                     ))}
                   </ul>
+                  </div>
                 </div>
               )}
             </CardContent>
