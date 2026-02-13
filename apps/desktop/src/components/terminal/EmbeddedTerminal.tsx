@@ -3,10 +3,14 @@ import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
-import { Loader2 } from "lucide-react";
+import { CircleHelp, Loader2, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import "@xterm/xterm/css/xterm.css";
+
+import { Button } from "@/components/ui/button";
+import { isSupportedProvider, providerDisplayName } from "@/lib/provider";
+import type { ThreadProviderId } from "@/types";
 
 export interface EmbeddedTerminalThread {
   id: string;
@@ -63,6 +67,107 @@ interface TerminalSessionState {
 }
 
 const SESSION_BUFFER_MAX_CHARS = 800_000;
+const MODE_TOGGLE_SHORTCUT_LABEL = "Cmd/Ctrl+Shift+M";
+const AGENT_MODE_SWITCH_SHORTCUT_LABEL = "Shift+Tab";
+
+interface TerminalProviderHelpDoc {
+  modeNote: string;
+  quickStartSteps: string[];
+  internalModesNote: string;
+  internalModeSteps: string[];
+  modelShortcutNote: string;
+  troubleshootingSteps: string[];
+  detailedDocsLabel: string;
+  detailedDocsHref: string;
+}
+
+const TERMINAL_COMMON_SHORTCUTS = [
+  "Enter: send current input",
+  "Shift+Enter: insert newline without submitting",
+  "Cmd/Ctrl+C: copy selected text",
+  "Cmd/Ctrl+V: paste clipboard into the CLI session",
+  `${MODE_TOGGLE_SHORTCUT_LABEL}: toggle UI/Terminal mode`,
+  `${AGENT_MODE_SWITCH_SHORTCUT_LABEL}: switch agent mode/model in supported CLIs`,
+] as const;
+
+const TERMINAL_PROVIDER_HELP_DOCS: Record<ThreadProviderId, TerminalProviderHelpDoc> = {
+  claude_code: {
+    modeNote:
+      "Runs Claude Code CLI directly in AgentDock Terminal and preserves native Claude session behavior.",
+    quickStartSteps: [
+      "Select a Claude thread on the left and keep the right pane in Terminal mode.",
+      "Type your prompt and press Enter to submit. Use Shift+Enter for multiline prompts.",
+      "If output stalls or context looks wrong, use Refresh to rebuild the embedded session.",
+    ],
+    internalModesNote:
+      "Claude Code can expose internal working modes (for example planning-style flows) through slash commands, depending on CLI version.",
+    internalModeSteps: [
+      `Use ${AGENT_MODE_SWITCH_SHORTCUT_LABEL} to cycle mode/model options when the CLI shows a switcher.`,
+      "Type `/` in terminal to open slash-command hints when needed.",
+      "After switching mode, continue in the same thread so context is preserved.",
+    ],
+    modelShortcutNote:
+      `In supported Claude Code builds, ${AGENT_MODE_SWITCH_SHORTCUT_LABEL} opens or cycles model/mode options. If not available, use slash commands such as /model.`,
+    troubleshootingSteps: [
+      "Session not connected: verify `claude` is installed and available in PATH.",
+      "Model switch not responding: check whether your Claude Code version supports `/model`.",
+      "Path errors: confirm the thread project path still exists and is accessible.",
+    ],
+    detailedDocsLabel: "Claude Code docs",
+    detailedDocsHref: "https://docs.anthropic.com/en/docs/claude-code/overview",
+  },
+  codex: {
+    modeNote:
+      "Runs Codex CLI directly in AgentDock Terminal and resumes by session id for this thread.",
+    quickStartSteps: [
+      "Select a Codex thread, type in terminal, and press Enter to submit.",
+      "Use Shift+Enter when preparing multiline instructions.",
+      "If session resume behaves unexpectedly, click Refresh to relaunch with current provider/thread/project context.",
+    ],
+    internalModesNote:
+      "Codex workflows may include internal agent modes such as planning/execution, depending on your CLI release and configuration.",
+    internalModeSteps: [
+      `Try ${AGENT_MODE_SWITCH_SHORTCUT_LABEL} first when a mode/model switch UI is available.`,
+      "Use `/` to inspect available Codex slash commands.",
+      "Confirm mode change in the prompt/status area before sending the next task.",
+    ],
+    modelShortcutNote:
+      `Use ${AGENT_MODE_SWITCH_SHORTCUT_LABEL} for quick model/mode switching when supported. If unsupported in your Codex version, use the model-switch path in official docs.`,
+    troubleshootingSteps: [
+      "CLI unavailable: verify `codex` is installed and authenticated.",
+      "Mode/model commands not found: check Codex CLI version and enabled features.",
+      "Directory missing: verify project path was not moved or deleted.",
+    ],
+    detailedDocsLabel: "Codex docs",
+    detailedDocsHref: "https://platform.openai.com/docs/codex",
+  },
+  opencode: {
+    modeNote:
+      "Runs OpenCode CLI directly in AgentDock Terminal and continues within the current session context.",
+    quickStartSteps: [
+      "Select an OpenCode thread first, then send instructions in terminal.",
+      "Use Shift+Enter for multiline prompts before submitting.",
+      "If session state looks inconsistent, use Refresh to reconnect with current context.",
+    ],
+    internalModesNote:
+      "OpenCode may provide internal operation modes (including planning-oriented flows) through slash commands in supported versions.",
+    internalModeSteps: [
+      `Use ${AGENT_MODE_SWITCH_SHORTCUT_LABEL} if your OpenCode build provides a mode/model switcher.`,
+      "Type `/` to list available OpenCode commands.",
+      "Choose any mode-related command exposed by your CLI build.",
+      "Keep working in the same thread to retain project and tool context.",
+    ],
+    modelShortcutNote:
+      `Use ${AGENT_MODE_SWITCH_SHORTCUT_LABEL} for quick switching if available. Otherwise switch models via OpenCode documented commands.`,
+    troubleshootingSteps: [
+      "Session resume fails: verify `opencode` is in PATH and its data directory is reachable.",
+      "Mode/model commands unavailable: verify OpenCode version and feature support.",
+      "Thread path errors: confirm the thread project path is still valid.",
+    ],
+    detailedDocsLabel: "OpenCode docs",
+    detailedDocsHref: "https://opencode.ai/docs",
+  },
+};
 
 type SessionLaunchTarget =
   | {
@@ -96,8 +201,15 @@ export function EmbeddedTerminal({
   const cleanupCheckInFlightRef = useRef<Set<string>>(new Set());
   const resizeFrameRef = useRef<number | null>(null);
   const pendingResizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const helpButtonRef = useRef<HTMLButtonElement | null>(null);
+  const helpPopoverRef = useRef<HTMLDivElement | null>(null);
+  const lastHandledRefreshRequestRef = useRef(0);
   const [isSwitchingThread, setIsSwitchingThread] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshRequestId, setRefreshRequestId] = useState(0);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [lastCommand, setLastCommand] = useState<string | null>(null);
 
   const threadKey = useMemo(() => {
@@ -129,6 +241,71 @@ export function EmbeddedTerminal({
       projectPath: thread.projectPath,
     };
   }, [launchRequest, thread, threadKey]);
+
+  const activeProviderId = useMemo<ThreadProviderId | null>(() => {
+    const providerId = launchTarget?.providerId ?? thread?.providerId;
+    if (!providerId || !isSupportedProvider(providerId)) {
+      return null;
+    }
+    return providerId;
+  }, [launchTarget?.providerId, thread?.providerId]);
+
+  const activeProviderHelpDoc = useMemo(() => {
+    if (!activeProviderId) {
+      return null;
+    }
+    return TERMINAL_PROVIDER_HELP_DOCS[activeProviderId];
+  }, [activeProviderId]);
+
+  useEffect(() => {
+    setRefreshError(null);
+  }, [launchTarget?.key]);
+
+  const handleRefreshSession = useCallback(() => {
+    if (isRefreshing || starting || isSwitchingThread) {
+      return;
+    }
+    if (!launchTarget) {
+      setRefreshError("Select a thread before refreshing the terminal session.");
+      return;
+    }
+    setRefreshError(null);
+    setIsRefreshing(true);
+    setRefreshRequestId((value) => value + 1);
+  }, [isRefreshing, isSwitchingThread, launchTarget, starting]);
+
+  useEffect(() => {
+    if (!helpOpen) {
+      return;
+    }
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+      if (helpPopoverRef.current?.contains(target)) {
+        return;
+      }
+      if (helpButtonRef.current?.contains(target)) {
+        return;
+      }
+      setHelpOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setHelpOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [helpOpen]);
 
   const queueRemoteResize = useCallback(
     (cols: number, rows: number) => {
@@ -352,7 +529,7 @@ export function EmbeddedTerminal({
       cursorBlink: true,
       convertEol: true,
       fontSize: 12,
-      lineHeight: 1.3,
+      lineHeight: 1.0,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       theme: {
         background: "#0f1117",
@@ -556,11 +733,19 @@ export function EmbeddedTerminal({
       return;
     }
 
+    const forceRestart = refreshRequestId !== lastHandledRefreshRequestRef.current;
+    if (forceRestart) {
+      lastHandledRefreshRequestRef.current = refreshRequestId;
+    }
+
     let cancelled = false;
 
     const startSession = async () => {
       setIsSwitchingThread(true);
       setStarting(false);
+      if (forceRestart) {
+        setRefreshError(null);
+      }
       onError?.(null);
       setLastCommand(null);
       terminal.reset();
@@ -570,13 +755,16 @@ export function EmbeddedTerminal({
         sessionIdRef.current = null;
         terminal.writeln("Select a thread from the left panel.");
         cleanupDormantSessions(null);
+        if (forceRestart) {
+          setIsRefreshing(false);
+        }
         setStarting(false);
         setIsSwitchingThread(false);
         return;
       }
 
       const existing = sessionsByThreadRef.current.get(launchTarget.key);
-      if (existing) {
+      if (existing && !forceRestart) {
         const snapshot = existing.buffer;
         if (snapshot) {
           terminal.write(snapshot);
@@ -589,6 +777,10 @@ export function EmbeddedTerminal({
         setStarting(false);
         setIsSwitchingThread(false);
         return;
+      }
+
+      if (existing && forceRestart) {
+        await closeSessionById(existing.sessionId);
       }
 
       setStarting(true);
@@ -647,6 +839,9 @@ export function EmbeddedTerminal({
         cleanupDormantSessions(launchTarget.key);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (forceRestart) {
+          setRefreshError(message);
+        }
         onError?.(message);
       } finally {
         if (launchTarget.mode === "new") {
@@ -657,11 +852,15 @@ export function EmbeddedTerminal({
             knownThreadIds: launchTarget.knownThreadIds,
           });
         }
-        if (!cancelled) {
-          setStarting(false);
-          setIsSwitchingThread(false);
-          fitAddonRef.current?.fit();
+        if (forceRestart) {
+          setIsRefreshing(false);
         }
+        if (cancelled) {
+          return;
+        }
+        setStarting(false);
+        setIsSwitchingThread(false);
+        fitAddonRef.current?.fit();
       }
     };
 
@@ -672,16 +871,20 @@ export function EmbeddedTerminal({
     };
   }, [
     appendSessionBuffer,
+    closeSessionById,
     cleanupDormantSessions,
     launchTarget,
     onError,
     onLaunchRequestSettled,
     queueRemoteResize,
+    refreshRequestId,
   ]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#0f1117]">
-      <div ref={hostRef} className="h-full w-full" />
+      <div className="h-full w-full px-3 pb-8 pt-8">
+        <div ref={hostRef} className="h-full w-full" />
+      </div>
       {isSwitchingThread ? (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0f1117]/96">
           <div className="inline-flex items-center gap-2 rounded-md border border-slate-700/80 bg-slate-900/90 px-3 py-2 text-xs text-slate-200">
@@ -691,7 +894,12 @@ export function EmbeddedTerminal({
         </div>
       ) : null}
       <div className="pointer-events-none absolute left-3 top-2 text-[11px] text-slate-400/85">
-        {starting ? (
+        {isRefreshing ? (
+          <span className="inline-flex items-center gap-1">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Refreshing terminal session...
+          </span>
+        ) : starting ? (
           <span className="inline-flex items-center gap-1">
             <Loader2 className="h-3 w-3 animate-spin" />
             Starting terminal session...
@@ -700,8 +908,130 @@ export function EmbeddedTerminal({
           <span className="truncate">{lastCommand}</span>
         ) : null}
       </div>
-      <div className="pointer-events-none absolute bottom-2 right-3 text-[10px] text-slate-400/75">
-        Shift+Enter: newline · ⌘/Ctrl+C copy · ⌘/Ctrl+V paste
+      {refreshError ? (
+        <div className="pointer-events-none absolute left-3 top-7 max-w-[70%] rounded-md border border-rose-500/40 bg-rose-900/20 px-2.5 py-1 text-[11px] text-rose-200">
+          Refresh failed: {refreshError}
+        </div>
+      ) : null}
+      <div className="absolute right-3 top-2 z-20 flex items-center gap-1.5">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5 border-slate-700/90 bg-slate-900/70 px-2 text-[11px] text-slate-100 hover:bg-slate-800/90 hover:text-white"
+          onClick={handleRefreshSession}
+          disabled={isRefreshing || starting || isSwitchingThread}
+        >
+          {isRefreshing ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3 w-3" />
+          )}
+          Refresh
+        </Button>
+        <Button
+          ref={helpButtonRef}
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-7 w-7 border-slate-700/90 bg-slate-900/70 text-slate-100 hover:bg-slate-800/90 hover:text-white"
+          onClick={() => setHelpOpen((open) => !open)}
+          aria-label="Terminal help"
+          aria-expanded={helpOpen}
+          aria-haspopup="dialog"
+        >
+          <CircleHelp className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      {helpOpen ? (
+        <div
+          ref={helpPopoverRef}
+          role="dialog"
+          aria-label="Terminal help"
+          className="absolute right-3 top-11 z-20 w-[min(31rem,calc(100%-1.5rem))] rounded-lg border border-slate-700/90 bg-slate-950/95 p-3 text-slate-100 shadow-2xl backdrop-blur"
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
+              {activeProviderId
+                ? `${providerDisplayName(activeProviderId)} Quick Guide`
+                : "Terminal Quick Guide"}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-slate-300 hover:bg-slate-800 hover:text-white"
+              onClick={() => setHelpOpen(false)}
+              aria-label="Close help"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          {activeProviderHelpDoc ? (
+            <div className="space-y-2 text-[11px] leading-relaxed text-slate-200">
+              <section>
+                <p className="font-semibold text-slate-100">Mode overview</p>
+                <p>{activeProviderHelpDoc.modeNote}</p>
+              </section>
+              <section>
+                <p className="font-semibold text-slate-100">Core workflow</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {activeProviderHelpDoc.quickStartSteps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ul>
+              </section>
+              <section>
+                <p className="font-semibold text-slate-100">Shortcuts</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {TERMINAL_COMMON_SHORTCUTS.map((shortcut) => (
+                    <li key={shortcut}>{shortcut}</li>
+                  ))}
+                </ul>
+              </section>
+              <section>
+                <p className="font-semibold text-slate-100">Agent internal modes</p>
+                <p>{activeProviderHelpDoc.internalModesNote}</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {activeProviderHelpDoc.internalModeSteps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ul>
+              </section>
+              <section>
+                <p className="font-semibold text-slate-100">Model selection</p>
+                <p>{activeProviderHelpDoc.modelShortcutNote}</p>
+              </section>
+              <section>
+                <p className="font-semibold text-slate-100">Troubleshooting</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {activeProviderHelpDoc.troubleshootingSteps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ul>
+              </section>
+              <section className="border-t border-slate-800/90 pt-2">
+                <p className="mb-1 font-semibold text-slate-100">Detailed docs</p>
+                <a
+                  href={activeProviderHelpDoc.detailedDocsHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex rounded-md border border-slate-700/90 px-2 py-1 text-[10px] text-slate-200 transition-colors hover:border-slate-500 hover:text-white"
+                >
+                  {activeProviderHelpDoc.detailedDocsLabel}
+                </a>
+              </section>
+            </div>
+          ) : (
+            <p className="text-[11px] leading-relaxed text-slate-300">
+              Select a thread first to view the quick guide for the current provider.
+            </p>
+          )}
+      </div>
+      ) : null}
+      <div className="pointer-events-none absolute bottom-2 right-3 max-w-[82%] text-right text-[10px] text-slate-400/75">
+        Shift+Enter newline · Shift+Tab mode/model switch (provider-supported) ·
+        ⌘/Ctrl+Shift+M toggle pane mode · ⌘/Ctrl+C copy · ⌘/Ctrl+V paste
       </div>
     </div>
   );
