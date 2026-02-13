@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -347,6 +348,7 @@ export function EmbeddedTerminal({
     }
 
     const terminal = new Terminal({
+      allowProposedApi: true,
       cursorBlink: true,
       convertEol: true,
       fontSize: 12,
@@ -360,8 +362,11 @@ export function EmbeddedTerminal({
       },
     });
     const fitAddon = new FitAddon();
+    const unicode11Addon = new Unicode11Addon();
 
     terminal.loadAddon(fitAddon);
+    terminal.loadAddon(unicode11Addon);
+    terminal.unicode.activeVersion = "11";
     terminal.open(hostRef.current);
     tuneHelperTextarea();
     fitAddon.fit();
