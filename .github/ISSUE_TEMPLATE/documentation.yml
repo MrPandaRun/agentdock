@@ -1,0 +1,45 @@
+name: Documentation
+description: Report issues or suggest improvements to documentation
+title: "[Docs]: "
+labels: ["documentation", "needs-triage"]
+assignees: []
+body:
+  - type: dropdown
+    id: location
+    attributes:
+      label: Documentation Location
+      description: Where is the documentation issue?
+      options:
+        - README.md
+        - AGENTS.md
+        - Code comments
+        - Type definitions (JSDoc/TSDoc)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: What's wrong or missing?
+      description: Describe the documentation issue or what's missing.
+      placeholder: "The documentation for X is unclear / missing Y..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested Improvement
+      description: How would you improve the documentation?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Would you be willing to submit a PR?
+      description: Documentation PRs are especially welcome and easy to review!
+      options:
+        - label: Yes, I would like to submit a PR to fix this
+          required: false
