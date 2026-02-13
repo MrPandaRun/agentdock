@@ -14,21 +14,30 @@ import { cn } from "@/lib/utils";
 import { useSidebar } from "@/hooks/useSidebar";
 import { useThreads } from "@/hooks/useThreads";
 import { useWindowDrag } from "@/hooks/useWindowDrag";
-import type { TerminalTheme } from "@/types";
+import type { AppTheme, TerminalTheme } from "@/types";
 
-const TERMINAL_THEME_KEY = "agentdock.desktop.terminal_theme";
+const APP_THEME_KEY = "agentdock.desktop.app_theme";
 
-function readStoredTerminalTheme(): TerminalTheme {
+function readStoredAppTheme(): AppTheme {
   if (typeof window === "undefined") {
-    return "dark";
+    return "light";
   }
-  const raw = window.localStorage.getItem(TERMINAL_THEME_KEY);
-  return raw === "light" ? "light" : "dark";
+  const raw = window.localStorage.getItem(APP_THEME_KEY);
+  return raw === "dark" || raw === "system" ? raw : "light";
+}
+
+function readSystemTheme(): TerminalTheme {
+  if (typeof window === "undefined") {
+    return "light";
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 function App() {
   const [showToolEvents, setShowToolEvents] = useState(false);
-  const [terminalTheme, setTerminalTheme] = useState<TerminalTheme>(readStoredTerminalTheme);
+  const [appTheme, setAppTheme] = useState<AppTheme>(readStoredAppTheme);
+  const [systemTheme, setSystemTheme] = useState<TerminalTheme>(readSystemTheme);
+  const resolvedTheme: TerminalTheme = appTheme === "system" ? systemTheme : appTheme;
 
   const {
     sidebarCollapsed,
@@ -81,8 +90,34 @@ function App() {
     if (typeof window === "undefined") {
       return;
     }
-    window.localStorage.setItem(TERMINAL_THEME_KEY, terminalTheme);
-  }, [terminalTheme]);
+    window.localStorage.setItem(APP_THEME_KEY, appTheme);
+  }, [appTheme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = (event: MediaQueryListEvent) => {
+      setSystemTheme(event.matches ? "dark" : "light");
+    };
+
+    setSystemTheme(mediaQuery.matches ? "dark" : "light");
+    mediaQuery.addEventListener("change", handleChange);
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const root = document.documentElement;
+    root.classList.toggle("dark", resolvedTheme === "dark");
+    root.style.colorScheme = resolvedTheme;
+  }, [resolvedTheme]);
 
   useEffect(() => {
     const handleModeToggleShortcut = (event: KeyboardEvent) => {
@@ -139,11 +174,11 @@ function App() {
           selectedThreadId={selectedThreadId}
           loadingThreads={loadingThreads}
           creatingThreadFolderKey={creatingThreadFolderKey}
-          terminalTheme={terminalTheme}
+          appTheme={appTheme}
           onLoadThreads={loadThreads}
           onSelectThread={handleSelectThread}
           onCreateThread={handleCreateThreadInFolder}
-          onTerminalThemeChange={setTerminalTheme}
+          onAppThemeChange={setAppTheme}
         />
 
         {!sidebarCollapsed ? (
@@ -212,7 +247,7 @@ function App() {
                         : null
                   }
                   launchRequest={newThreadLaunch}
-                  terminalTheme={terminalTheme}
+                  terminalTheme={resolvedTheme}
                   onLaunchRequestSettled={handleNewThreadLaunchSettled}
                   onError={setError}
                 />

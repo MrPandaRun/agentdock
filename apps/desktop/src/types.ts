@@ -31,4 +31,5 @@ export interface ToolMessageParts {
 
 export type RightPaneMode = "terminal" | "ui";
 export type ThreadProviderId = "claude_code" | "codex" | "opencode";
+export type AppTheme = "light" | "dark" | "system";
 export type TerminalTheme = "dark" | "light";
