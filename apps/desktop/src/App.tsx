@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   EmbeddedTerminal,
@@ -64,6 +64,40 @@ function App() {
     () => messages.filter((message) => message.kind === "tool").length,
     [messages],
   );
+
+  useEffect(() => {
+    const handleModeToggleShortcut = (event: KeyboardEvent) => {
+      const hasMod = event.metaKey || event.ctrlKey;
+      if (!(hasMod && event.shiftKey && event.key.toLowerCase() === "m")) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tagName = target.tagName.toLowerCase();
+        const isEditable =
+          target.isContentEditable ||
+          tagName === "input" ||
+          tagName === "textarea" ||
+          tagName === "select";
+        const isTerminalHelperTextarea =
+          tagName === "textarea" &&
+          target.classList.contains("xterm-helper-textarea");
+
+        if (isEditable && !isTerminalHelperTextarea) {
+          return;
+        }
+      }
+
+      event.preventDefault();
+      setRightPaneMode(rightPaneMode === "terminal" ? "ui" : "terminal");
+    };
+
+    window.addEventListener("keydown", handleModeToggleShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleModeToggleShortcut);
+    };
+  }, [rightPaneMode, setRightPaneMode]);
 
   return (
     <main className="relative h-full min-h-0 overflow-hidden bg-background">
