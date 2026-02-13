@@ -1,6 +1,6 @@
 import type { TerminalTheme } from "@/types";
 
-interface TerminalVisualTheme {
+export interface TerminalVisualTheme {
   minimumContrastRatio: number;
   containerBackground: string;
   switchingOverlayBackground: string;
