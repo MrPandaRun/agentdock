@@ -1,7 +1,35 @@
-# Tauri + React + Typescript
+# AgentDock Desktop
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Desktop runtime for AgentDock, built with Tauri (Rust host) + React/Vite (UI).
 
-## Recommended IDE Setup
+For product overview, provider scope, and contribution guidelines:
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- Root README (EN): [`../../README.md`](../../README.md)
+- Root README (中文): [`../../README.zh-CN.md`](../../README.zh-CN.md)
+
+## Local Development
+
+Run from the repository root:
+
+```bash
+bun run dev:desktop
+```
+
+Or run package-scoped commands:
+
+```bash
+bun run --filter @agentdock/desktop dev
+bun run --filter @agentdock/desktop typecheck
+bun run --filter @agentdock/desktop test
+```
+
+## Key Paths
+
+- UI source: `src/`
+- Tauri host: `src-tauri/`
+- Package config: `package.json`
+
+## Notes
+
+- JavaScript workspace operations use Bun.
+- Tauri platform dependencies must be installed for your OS.
