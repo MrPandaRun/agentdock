@@ -84,6 +84,40 @@ function App() {
     window.localStorage.setItem(TERMINAL_THEME_KEY, terminalTheme);
   }, [terminalTheme]);
 
+  useEffect(() => {
+    const handleModeToggleShortcut = (event: KeyboardEvent) => {
+      const hasMod = event.metaKey || event.ctrlKey;
+      if (!(hasMod && event.shiftKey && event.key.toLowerCase() === "m")) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tagName = target.tagName.toLowerCase();
+        const isEditable =
+          target.isContentEditable ||
+          tagName === "input" ||
+          tagName === "textarea" ||
+          tagName === "select";
+        const isTerminalHelperTextarea =
+          tagName === "textarea" &&
+          target.classList.contains("xterm-helper-textarea");
+
+        if (isEditable && !isTerminalHelperTextarea) {
+          return;
+        }
+      }
+
+      event.preventDefault();
+      setRightPaneMode(rightPaneMode === "terminal" ? "ui" : "terminal");
+    };
+
+    window.addEventListener("keydown", handleModeToggleShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleModeToggleShortcut);
+    };
+  }, [rightPaneMode, setRightPaneMode]);
+
   return (
     <main className="relative h-full min-h-0 overflow-hidden bg-background">
       {/* Drag region for window movement - workaround for Tauri 2.x macOS overlay issue */}
