@@ -144,11 +144,6 @@ export function Sidebar({
   return (
     <Card className="flex min-h-0 flex-col rounded-none border-0 bg-card/92 shadow-none pt-8">
       <CardHeader className="px-4 py-3 pb-2.5">
-        <CardDescription className="text-[11px] uppercase tracking-[0.18em] text-primary/90">
-          AgentDock
-        </CardDescription>
-        <CardTitle className="text-[22px] leading-none">Agent Console</CardTitle>
-        <CardDescription className="text-xs">Thread switch + session relay</CardDescription>
         <div className="flex items-center gap-2 pt-1">
           <Button variant="secondary" size="sm" className="h-7 px-2.5 text-xs" disabled>
             New Thread
