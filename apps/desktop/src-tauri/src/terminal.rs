@@ -56,6 +56,7 @@ pub fn start_embedded_terminal(
     provider_id: ProviderId,
     thread_id: &str,
     project_path: Option<&str>,
+    terminal_theme: Option<&str>,
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> Result<StartEmbeddedTerminalResponse, String> {
@@ -63,7 +64,7 @@ pub fn start_embedded_terminal(
     let rows = clamp_terminal_rows(rows);
     let command = build_resume_command_from_parts(provider_id, thread_id, project_path);
     let session_id = next_embedded_terminal_session_id();
-    let (reader, session) = create_embedded_session(&command, cols, rows)?;
+    let (reader, session) = create_embedded_session(&command, terminal_theme, cols, rows)?;
     terminal_sessions()
         .lock()
         .map_err(|_| "Embedded terminal sessions lock poisoned".to_string())?
@@ -82,6 +83,7 @@ pub fn start_new_embedded_terminal(
     app: tauri::AppHandle,
     provider_id: ProviderId,
     project_path: Option<&str>,
+    terminal_theme: Option<&str>,
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> Result<StartEmbeddedTerminalResponse, String> {
@@ -89,7 +91,7 @@ pub fn start_new_embedded_terminal(
     let rows = clamp_terminal_rows(rows);
     let command = build_new_thread_command_from_parts(provider_id, project_path);
     let session_id = next_embedded_terminal_session_id();
-    let (reader, session) = create_embedded_session(&command, cols, rows)?;
+    let (reader, session) = create_embedded_session(&command, terminal_theme, cols, rows)?;
     terminal_sessions()
         .lock()
         .map_err(|_| "Embedded terminal sessions lock poisoned".to_string())?
@@ -194,6 +196,7 @@ fn next_embedded_terminal_session_id() -> String {
 
 fn create_embedded_session(
     command: &str,
+    terminal_theme: Option<&str>,
     cols: u16,
     rows: u16,
 ) -> Result<(Box<dyn Read + Send>, Arc<EmbeddedTerminalSession>), String> {
@@ -210,8 +213,10 @@ fn create_embedded_session(
     let mut cmd = CommandBuilder::new("sh");
     cmd.arg("-lc");
     cmd.arg(command);
+    // Keep env close to macOS Terminal defaults so CLI color heuristics match.
     cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "Apple_Terminal");
+    cmd.env("COLORFGBG", colorfgbg_for_theme(terminal_theme));
     cmd.env("COLUMNS", cols.to_string());
     cmd.env("LINES", rows.to_string());
 
@@ -234,6 +239,13 @@ fn create_embedded_session(
         master: Mutex::new(pair.master),
     });
     Ok((reader, session))
+}
+
+fn colorfgbg_for_theme(terminal_theme: Option<&str>) -> &'static str {
+    match terminal_theme {
+        Some("light") => "0;15",
+        _ => "15;0",
+    }
 }
 
 fn spawn_terminal_output_reader<R: Read + Send + 'static>(

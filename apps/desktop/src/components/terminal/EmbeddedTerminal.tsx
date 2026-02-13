@@ -8,6 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import "@xterm/xterm/css/xterm.css";
 
+import { TERMINAL_THEMES } from "@/components/terminal/theme";
+import type { TerminalTheme } from "@/types";
+
 export interface EmbeddedTerminalThread {
   id: string;
   providerId: string;
@@ -44,6 +47,7 @@ interface ThreadRuntimeState {
 
 interface EmbeddedTerminalProps {
   thread: EmbeddedTerminalThread | null;
+  terminalTheme: TerminalTheme;
   launchRequest?: EmbeddedTerminalNewThreadLaunch | null;
   onLaunchRequestSettled?: (launch: EmbeddedTerminalNewThreadLaunch) => void;
   onError?: (message: string | null) => void;
@@ -83,6 +87,7 @@ type SessionLaunchTarget =
 
 export function EmbeddedTerminal({
   thread,
+  terminalTheme,
   launchRequest,
   onLaunchRequestSettled,
   onError,
@@ -99,19 +104,21 @@ export function EmbeddedTerminal({
   const [isSwitchingThread, setIsSwitchingThread] = useState(false);
   const [starting, setStarting] = useState(false);
   const [lastCommand, setLastCommand] = useState<string | null>(null);
+  const initialThemeRef = useRef(TERMINAL_THEMES[terminalTheme]);
+  const activeTheme = TERMINAL_THEMES[terminalTheme];
 
   const threadKey = useMemo(() => {
     if (!thread) {
       return null;
     }
-    return `${thread.providerId}:${thread.id}:${thread.projectPath}`;
-  }, [thread]);
+    return `${thread.providerId}:${thread.id}:${thread.projectPath}:${terminalTheme}`;
+  }, [terminalTheme, thread]);
 
   const launchTarget = useMemo<SessionLaunchTarget | null>(() => {
     if (launchRequest) {
       return {
         mode: "new",
-        key: `new:${launchRequest.launchId}`,
+        key: `new:${launchRequest.launchId}:${terminalTheme}`,
         launchId: launchRequest.launchId,
         providerId: launchRequest.providerId,
         projectPath: launchRequest.projectPath,
@@ -128,7 +135,7 @@ export function EmbeddedTerminal({
       providerId: thread.providerId,
       projectPath: thread.projectPath,
     };
-  }, [launchRequest, thread, threadKey]);
+  }, [launchRequest, terminalTheme, thread, threadKey]);
 
   const queueRemoteResize = useCallback(
     (cols: number, rows: number) => {
@@ -351,15 +358,12 @@ export function EmbeddedTerminal({
       allowProposedApi: true,
       cursorBlink: true,
       convertEol: true,
+      drawBoldTextInBrightColors: false,
+      minimumContrastRatio: initialThemeRef.current.minimumContrastRatio,
       fontSize: 12,
       lineHeight: 1.3,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-      theme: {
-        background: "#0f1117",
-        foreground: "#d6dbe4",
-        cursor: "#8ab4f8",
-        selectionBackground: "#334155",
-      },
+      theme: initialThemeRef.current.xterm,
     });
     const fitAddon = new FitAddon();
     const unicode11Addon = new Unicode11Addon();
@@ -555,6 +559,30 @@ export function EmbeddedTerminal({
     if (!terminal) {
       return;
     }
+    terminal.options.theme = activeTheme.xterm;
+    terminal.options.minimumContrastRatio = activeTheme.minimumContrastRatio;
+
+    const activeSessionId = sessionIdRef.current;
+    if (!activeSessionId) {
+      return;
+    }
+    const activeSession = sessionsByIdRef.current.get(activeSessionId);
+    if (!activeSession) {
+      return;
+    }
+
+    terminal.reset();
+    terminal.clear();
+    if (activeSession.buffer) {
+      terminal.write(activeSession.buffer);
+    }
+  }, [activeTheme]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
 
     let cancelled = false;
 
@@ -573,6 +601,18 @@ export function EmbeddedTerminal({
         setStarting(false);
         setIsSwitchingThread(false);
         return;
+      }
+
+      if (launchTarget.mode === "resume") {
+        for (const session of sessionsByIdRef.current.values()) {
+          if (session.threadId !== launchTarget.threadId) {
+            continue;
+          }
+          if (session.threadKey === launchTarget.key) {
+            continue;
+          }
+          void closeSessionById(session.sessionId);
+        }
       }
 
       const existing = sessionsByThreadRef.current.get(launchTarget.key);
@@ -601,6 +641,7 @@ export function EmbeddedTerminal({
                   threadId: launchTarget.threadId,
                   providerId: launchTarget.providerId,
                   projectPath: launchTarget.projectPath,
+                  terminalTheme,
                   cols: Math.max(40, terminal.cols || 120),
                   rows: Math.max(12, terminal.rows || 36),
                 },
@@ -609,6 +650,7 @@ export function EmbeddedTerminal({
                 request: {
                   providerId: launchTarget.providerId,
                   projectPath: launchTarget.projectPath,
+                  terminalTheme,
                   cols: Math.max(40, terminal.cols || 120),
                   rows: Math.max(12, terminal.rows || 36),
                 },
@@ -672,25 +714,43 @@ export function EmbeddedTerminal({
     };
   }, [
     appendSessionBuffer,
+    closeSessionById,
     cleanupDormantSessions,
     launchTarget,
     onError,
     onLaunchRequestSettled,
     queueRemoteResize,
+    terminalTheme,
   ]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#0f1117]">
+    <div
+      className="relative h-full w-full overflow-hidden"
+      style={{ backgroundColor: activeTheme.containerBackground }}
+    >
       <div ref={hostRef} className="h-full w-full" />
       {isSwitchingThread ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0f1117]/96">
-          <div className="inline-flex items-center gap-2 rounded-md border border-slate-700/80 bg-slate-900/90 px-3 py-2 text-xs text-slate-200">
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center"
+          style={{ backgroundColor: activeTheme.switchingOverlayBackground }}
+        >
+          <div
+            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs"
+            style={{
+              backgroundColor: activeTheme.switchingChipBackground,
+              borderColor: activeTheme.switchingChipBorder,
+              color: activeTheme.switchingChipText,
+            }}
+          >
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Loading thread session...
           </div>
         </div>
       ) : null}
-      <div className="pointer-events-none absolute left-3 top-2 text-[11px] text-slate-400/85">
+      <div
+        className="pointer-events-none absolute left-3 top-2 text-[11px]"
+        style={{ color: activeTheme.commandText }}
+      >
         {starting ? (
           <span className="inline-flex items-center gap-1">
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -700,7 +760,10 @@ export function EmbeddedTerminal({
           <span className="truncate">{lastCommand}</span>
         ) : null}
       </div>
-      <div className="pointer-events-none absolute bottom-2 right-3 text-[10px] text-slate-400/75">
+      <div
+        className="pointer-events-none absolute bottom-2 right-3 text-[10px]"
+        style={{ color: activeTheme.hintText }}
+      >
         Shift+Enter: newline · ⌘/Ctrl+C copy · ⌘/Ctrl+V paste
       </div>
     </div>
