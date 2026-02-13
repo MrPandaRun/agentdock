@@ -266,20 +266,5 @@ export function useTerminalHostEffects({
     }
     terminal.options.theme = activeTheme.xterm;
     terminal.options.minimumContrastRatio = activeTheme.minimumContrastRatio;
-
-    const activeSessionId = sessionIdRef.current;
-    if (!activeSessionId) {
-      return;
-    }
-    const activeSession = sessionsByIdRef.current.get(activeSessionId);
-    if (!activeSession) {
-      return;
-    }
-
-    terminal.reset();
-    terminal.clear();
-    if (activeSession.buffer) {
-      terminal.write(activeSession.buffer);
-    }
-  }, [activeTheme, sessionIdRef, sessionsByIdRef, terminalRef]);
+  }, [activeTheme, terminalRef]);
 }

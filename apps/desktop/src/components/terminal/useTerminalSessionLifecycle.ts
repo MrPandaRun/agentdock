@@ -238,6 +238,5 @@ export function useTerminalSessionLifecycle({
     setRefreshError,
     setStarting,
     terminalRef,
-    terminalTheme,
   ]);
 }

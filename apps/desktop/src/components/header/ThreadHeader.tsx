@@ -129,6 +129,9 @@ export function ThreadHeader({
               >
                 <Monitor className="h-3 w-3" />
                 UI
+                <span className="ml-0.5 text-[8px] lowercase text-muted-foreground/65">
+                  alpha
+                </span>
               </Button>
             </div>
             {rightPaneMode === "ui" ? (
