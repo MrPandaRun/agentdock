@@ -199,9 +199,12 @@ function pickCreatedThread(
 
   const knownIds = new Set(launch.knownThreadIds);
   const freshMatches = matches.filter((thread) => !knownIds.has(thread.id));
-  const candidates = freshMatches.length > 0 ? freshMatches : matches;
+  if (freshMatches.length === 0) {
+    return null;
+  }
+
   return (
-    [...candidates].sort(
+    [...freshMatches].sort(
       (a, b) => sortableTimestamp(b.lastActiveAt) - sortableTimestamp(a.lastActiveAt),
     )[0] ?? null
   );
@@ -498,7 +501,7 @@ function App() {
 
   const handleNewThreadLaunchSettled = useCallback(
     (launch: EmbeddedTerminalNewThreadLaunch) => {
-      const retryDelaysMs = [350, 700, 1000, 1200];
+      const retryDelaysMs = [250, 350, 500, 700, 900, 1200, 1600, 2000, 2600, 3200];
 
       const settle = () => {
         const isActiveLaunch = pendingNewThreadLaunchIdRef.current === launch.launchId;
@@ -532,8 +535,6 @@ function App() {
               settle();
               return;
             }
-
-            setSelectedThreadId((current) => resolveSelectedThreadId(data, current));
 
             if (attempt < retryDelaysMs.length) {
               await new Promise((resolve) => {
