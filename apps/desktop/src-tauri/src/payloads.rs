@@ -116,6 +116,7 @@ pub struct StartEmbeddedTerminalRequest {
     pub thread_id: String,
     pub provider_id: String,
     pub project_path: Option<String>,
+    pub terminal_theme: Option<String>,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
 }
@@ -125,6 +126,7 @@ pub struct StartEmbeddedTerminalRequest {
 pub struct StartNewEmbeddedTerminalRequest {
     pub provider_id: String,
     pub project_path: Option<String>,
+    pub terminal_theme: Option<String>,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
 }

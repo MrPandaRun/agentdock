@@ -14,9 +14,21 @@ import { cn } from "@/lib/utils";
 import { useSidebar } from "@/hooks/useSidebar";
 import { useThreads } from "@/hooks/useThreads";
 import { useWindowDrag } from "@/hooks/useWindowDrag";
+import type { TerminalTheme } from "@/types";
+
+const TERMINAL_THEME_KEY = "agentdock.desktop.terminal_theme";
+
+function readStoredTerminalTheme(): TerminalTheme {
+  if (typeof window === "undefined") {
+    return "dark";
+  }
+  const raw = window.localStorage.getItem(TERMINAL_THEME_KEY);
+  return raw === "light" ? "light" : "dark";
+}
 
 function App() {
   const [showToolEvents, setShowToolEvents] = useState(false);
+  const [terminalTheme, setTerminalTheme] = useState<TerminalTheme>(readStoredTerminalTheme);
 
   const {
     sidebarCollapsed,
@@ -64,6 +76,13 @@ function App() {
     () => messages.filter((message) => message.kind === "tool").length,
     [messages],
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(TERMINAL_THEME_KEY, terminalTheme);
+  }, [terminalTheme]);
 
   useEffect(() => {
     const handleModeToggleShortcut = (event: KeyboardEvent) => {
@@ -120,9 +139,11 @@ function App() {
           selectedThreadId={selectedThreadId}
           loadingThreads={loadingThreads}
           creatingThreadFolderKey={creatingThreadFolderKey}
+          terminalTheme={terminalTheme}
           onLoadThreads={loadThreads}
           onSelectThread={handleSelectThread}
           onCreateThread={handleCreateThreadInFolder}
+          onTerminalThemeChange={setTerminalTheme}
         />
 
         {!sidebarCollapsed ? (
@@ -191,6 +212,7 @@ function App() {
                         : null
                   }
                   launchRequest={newThreadLaunch}
+                  terminalTheme={terminalTheme}
                   onLaunchRequestSettled={handleNewThreadLaunchSettled}
                   onError={setError}
                 />

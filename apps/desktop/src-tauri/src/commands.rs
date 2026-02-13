@@ -122,6 +122,7 @@ pub async fn start_embedded_terminal(
             provider_id,
             &request.thread_id,
             request.project_path.as_deref(),
+            request.terminal_theme.as_deref(),
             request.cols,
             request.rows,
         )
@@ -141,6 +142,7 @@ pub async fn start_new_embedded_terminal(
             app,
             provider_id,
             request.project_path.as_deref(),
+            request.terminal_theme.as_deref(),
             request.cols,
             request.rows,
         )
