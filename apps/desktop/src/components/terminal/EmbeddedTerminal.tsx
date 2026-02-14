@@ -10,6 +10,7 @@ import {
 import { TerminalHelpPopover } from "@/components/terminal/TerminalHelpPopover";
 import { TerminalToolbar } from "@/components/terminal/TerminalToolbar";
 import type {
+  EmbeddedTerminalLaunchSettledPayload,
   EmbeddedTerminalNewThreadLaunch,
   EmbeddedTerminalThread,
 } from "@/components/terminal/types";
@@ -20,7 +21,8 @@ interface EmbeddedTerminalProps {
   thread: EmbeddedTerminalThread | null;
   terminalTheme: TerminalTheme;
   launchRequest?: EmbeddedTerminalNewThreadLaunch | null;
-  onLaunchRequestSettled?: (launch: EmbeddedTerminalNewThreadLaunch) => void;
+  onLaunchRequestSettled?: (payload: EmbeddedTerminalLaunchSettledPayload) => void;
+  onActiveSessionExit?: () => void;
   onError?: (message: string | null) => void;
 }
 
@@ -29,6 +31,7 @@ export function EmbeddedTerminal({
   terminalTheme,
   launchRequest,
   onLaunchRequestSettled,
+  onActiveSessionExit,
   onError,
 }: EmbeddedTerminalProps) {
   const [helpOpen, setHelpOpen] = useState(false);
@@ -50,6 +53,7 @@ export function EmbeddedTerminal({
     terminalTheme,
     launchRequest,
     onLaunchRequestSettled,
+    onActiveSessionExit,
     onError,
   });
 
@@ -91,7 +95,7 @@ export function EmbeddedTerminal({
       className="relative h-full w-full overflow-hidden"
       style={{ backgroundColor: activeTheme.containerBackground }}
     >
-      <div className="h-full w-full px-3 pb-8 pt-8">
+      <div className="h-full w-full px-1 pb-8 pt-8">
         <div ref={hostRef} className="h-full w-full" />
       </div>
       {isSwitchingThread ? (
@@ -113,7 +117,7 @@ export function EmbeddedTerminal({
         </div>
       ) : null}
       <div
-        className="pointer-events-none absolute left-3 top-2 text-[11px]"
+        className="pointer-events-none absolute left-1.5 top-2 text-[11px]"
         style={{ color: activeTheme.commandText }}
       >
         {isRefreshing ? (
@@ -132,7 +136,7 @@ export function EmbeddedTerminal({
       </div>
       {refreshError ? (
         <div
-          className="pointer-events-none absolute left-3 top-7 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
+          className="pointer-events-none absolute left-1.5 top-7 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
           style={{
             borderColor: "rgba(244, 63, 94, 0.5)",
             backgroundColor:

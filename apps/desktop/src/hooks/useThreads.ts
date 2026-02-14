@@ -39,6 +39,13 @@ export interface EmbeddedTerminalNewThreadLaunch {
   knownThreadIds: string[];
 }
 
+export interface EmbeddedTerminalLaunchSettledPayload {
+  launch: EmbeddedTerminalNewThreadLaunch;
+  started: boolean;
+}
+
+export type NewThreadBindingStatus = "starting" | "awaiting_discovery";
+
 export interface UseThreadsResult {
   threads: AgentThreadSummary[];
   selectedThreadId: string | null;
@@ -53,13 +60,15 @@ export interface UseThreadsResult {
   rightPaneMode: RightPaneMode;
   creatingThreadFolderKey: string | null;
   newThreadLaunch: EmbeddedTerminalNewThreadLaunch | null;
+  newThreadBindingStatus: NewThreadBindingStatus | null;
   setRightPaneMode: (mode: RightPaneMode) => void;
   setError: (error: string | null) => void;
   loadThreads: () => Promise<void>;
   loadMessages: (threadId: string, providerId: string) => Promise<AgentThreadMessage[]>;
   handleSelectThread: (threadId: string) => void;
   handleCreateThreadInFolder: (projectPath: string, providerId: ThreadProviderId) => Promise<void>;
-  handleNewThreadLaunchSettled: (launch: EmbeddedTerminalNewThreadLaunch) => void;
+  handleNewThreadLaunchSettled: (payload: EmbeddedTerminalLaunchSettledPayload) => void;
+  handleEmbeddedTerminalSessionExit: () => void;
   handleSendMessage: (content: string) => Promise<void>;
 }
 
@@ -76,6 +85,8 @@ export function useThreads(): UseThreadsResult {
   const [newThreadLaunch, setNewThreadLaunch] = useState<EmbeddedTerminalNewThreadLaunch | null>(
     null,
   );
+  const [newThreadBindingStatus, setNewThreadBindingStatus] =
+    useState<NewThreadBindingStatus | null>(null);
   const pendingNewThreadLaunchIdRef = useRef<number | null>(null);
 
   const selectedThread = useMemo(
@@ -148,6 +159,47 @@ export function useThreads(): UseThreadsResult {
     return data;
   }, []);
 
+  const clearPendingNewThreadLaunch = useCallback((launch: EmbeddedTerminalNewThreadLaunch) => {
+    const isActiveLaunch = pendingNewThreadLaunchIdRef.current === launch.launchId;
+    if (!isActiveLaunch) {
+      return false;
+    }
+
+    pendingNewThreadLaunchIdRef.current = null;
+    setNewThreadBindingStatus(null);
+    setCreatingThreadFolderKey((current) =>
+      current === launch.projectPath ? null : current,
+    );
+    setNewThreadLaunch((current) =>
+      current?.launchId === launch.launchId ? null : current,
+    );
+    return true;
+  }, []);
+
+  const tryBindNewThreadLaunch = useCallback(
+    async (launch: EmbeddedTerminalNewThreadLaunch) => {
+      if (pendingNewThreadLaunchIdRef.current !== launch.launchId) {
+        return false;
+      }
+
+      const data = await invoke<AgentThreadSummary[]>("list_threads");
+      if (pendingNewThreadLaunchIdRef.current !== launch.launchId) {
+        return false;
+      }
+
+      setThreads(data);
+      const createdThread = pickCreatedThread(data, launch);
+      if (!createdThread) {
+        return false;
+      }
+
+      setSelectedThreadId(createdThread.id);
+      clearPendingNewThreadLaunch(launch);
+      return true;
+    },
+    [clearPendingNewThreadLaunch],
+  );
+
   const handleCreateThreadInFolder = useCallback(
     async (projectPath: string, providerId: ThreadProviderId) => {
       const launchId = Date.now();
@@ -155,6 +207,7 @@ export function useThreads(): UseThreadsResult {
       setError(null);
       setRightPaneMode("terminal");
       pendingNewThreadLaunchIdRef.current = launchId;
+      setNewThreadBindingStatus("starting");
       setNewThreadLaunch({
         launchId,
         providerId,
@@ -167,67 +220,59 @@ export function useThreads(): UseThreadsResult {
 
   const handleSelectThread = useCallback((threadId: string) => {
     pendingNewThreadLaunchIdRef.current = null;
+    setNewThreadBindingStatus(null);
     setCreatingThreadFolderKey(null);
     setNewThreadLaunch(null);
     setSelectedThreadId(threadId);
   }, []);
 
   const handleNewThreadLaunchSettled = useCallback(
-    (launch: EmbeddedTerminalNewThreadLaunch) => {
-      const retryDelaysMs = [250, 350, 500, 700, 900, 1200, 1600, 2000, 2600, 3200];
+    ({ launch, started }: EmbeddedTerminalLaunchSettledPayload) => {
+      if (pendingNewThreadLaunchIdRef.current !== launch.launchId) {
+        return;
+      }
 
-      const settle = () => {
-        const isActiveLaunch = pendingNewThreadLaunchIdRef.current === launch.launchId;
-        if (isActiveLaunch) {
-          pendingNewThreadLaunchIdRef.current = null;
-        }
-        setCreatingThreadFolderKey((current) => {
-          if (!isActiveLaunch) {
-            return current;
-          }
-          return current === launch.projectPath ? null : current;
-        });
-        setNewThreadLaunch((current) =>
-          current?.launchId === launch.launchId ? null : current,
-        );
-      };
+      if (!started) {
+        clearPendingNewThreadLaunch(launch);
+        return;
+      }
 
+      setCreatingThreadFolderKey((current) =>
+        current === launch.projectPath ? null : current,
+      );
       void (async () => {
         try {
-          for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
-            if (pendingNewThreadLaunchIdRef.current !== launch.launchId) {
-              return;
-            }
-
-            const data = await invoke<AgentThreadSummary[]>("list_threads");
-            const createdThread = pickCreatedThread(data, launch);
-            setThreads(data);
-
-            if (createdThread) {
-              setSelectedThreadId(createdThread.id);
-              settle();
-              return;
-            }
-
-            if (attempt < retryDelaysMs.length) {
-              await new Promise((resolve) => {
-                window.setTimeout(resolve, retryDelaysMs[attempt]);
-              });
-            }
+          const isBound = await tryBindNewThreadLaunch(launch);
+          if (isBound) {
+            return;
           }
-        } catch (refreshError) {
           if (pendingNewThreadLaunchIdRef.current === launch.launchId) {
-            const message =
-              refreshError instanceof Error ? refreshError.message : String(refreshError);
-            setError(message);
+            setNewThreadBindingStatus("awaiting_discovery");
           }
-        } finally {
-          settle();
+        } catch {
+          if (pendingNewThreadLaunchIdRef.current === launch.launchId) {
+            setNewThreadBindingStatus("awaiting_discovery");
+          }
         }
       })();
     },
-    [],
+    [clearPendingNewThreadLaunch, tryBindNewThreadLaunch],
   );
+
+  const handleEmbeddedTerminalSessionExit = useCallback(() => {
+    const activeLaunchId = pendingNewThreadLaunchIdRef.current;
+    if (activeLaunchId === null) {
+      return;
+    }
+
+    pendingNewThreadLaunchIdRef.current = null;
+    setNewThreadBindingStatus(null);
+    setCreatingThreadFolderKey(null);
+    setNewThreadLaunch((current) =>
+      current?.launchId === activeLaunchId ? null : current,
+    );
+    void loadThreads();
+  }, [loadThreads]);
 
   const handleSendMessage = useCallback(
     async (content: string) => {
@@ -304,9 +349,58 @@ export function useThreads(): UseThreadsResult {
       return;
     }
     pendingNewThreadLaunchIdRef.current = null;
+    setNewThreadBindingStatus(null);
     setNewThreadLaunch(null);
     setCreatingThreadFolderKey(null);
   }, [rightPaneMode]);
+
+  useEffect(() => {
+    if (
+      rightPaneMode !== "terminal" ||
+      newThreadBindingStatus !== "awaiting_discovery" ||
+      !newThreadLaunch ||
+      pendingNewThreadLaunchIdRef.current !== newThreadLaunch.launchId
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const pollForCreatedThread = async () => {
+      if (cancelled || pendingNewThreadLaunchIdRef.current !== newThreadLaunch.launchId) {
+        return;
+      }
+
+      try {
+        const isBound = await tryBindNewThreadLaunch(newThreadLaunch);
+        if (isBound || cancelled) {
+          return;
+        }
+      } catch {
+        // Keep polling quietly to avoid noisy global errors.
+      }
+
+      if (cancelled || pendingNewThreadLaunchIdRef.current !== newThreadLaunch.launchId) {
+        return;
+      }
+
+      timeoutId = window.setTimeout(() => {
+        void pollForCreatedThread();
+      }, 2000);
+    };
+
+    timeoutId = window.setTimeout(() => {
+      void pollForCreatedThread();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [newThreadBindingStatus, newThreadLaunch, rightPaneMode, tryBindNewThreadLaunch]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -377,6 +471,7 @@ export function useThreads(): UseThreadsResult {
     rightPaneMode,
     creatingThreadFolderKey,
     newThreadLaunch,
+    newThreadBindingStatus,
     setRightPaneMode,
     setError,
     loadThreads,
@@ -384,6 +479,7 @@ export function useThreads(): UseThreadsResult {
     handleSelectThread,
     handleCreateThreadInFolder,
     handleNewThreadLaunchSettled,
+    handleEmbeddedTerminalSessionExit,
     handleSendMessage,
   };
 }

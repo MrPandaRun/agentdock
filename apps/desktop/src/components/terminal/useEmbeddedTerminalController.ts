@@ -11,6 +11,7 @@ import { isSupportedProvider } from "@/lib/provider";
 import type { TerminalTheme, ThreadProviderId } from "@/types";
 
 import type {
+  EmbeddedTerminalLaunchSettledPayload,
   EmbeddedTerminalNewThreadLaunch,
   EmbeddedTerminalThread,
   SessionLaunchTarget,
@@ -24,7 +25,8 @@ interface UseEmbeddedTerminalControllerProps {
   thread: EmbeddedTerminalThread | null;
   terminalTheme: TerminalTheme;
   launchRequest?: EmbeddedTerminalNewThreadLaunch | null;
-  onLaunchRequestSettled?: (launch: EmbeddedTerminalNewThreadLaunch) => void;
+  onLaunchRequestSettled?: (payload: EmbeddedTerminalLaunchSettledPayload) => void;
+  onActiveSessionExit?: () => void;
   onError?: (message: string | null) => void;
 }
 
@@ -50,6 +52,7 @@ export function useEmbeddedTerminalController({
   terminalTheme,
   launchRequest,
   onLaunchRequestSettled,
+  onActiveSessionExit,
   onError,
 }: UseEmbeddedTerminalControllerProps): UseEmbeddedTerminalControllerResult {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -72,36 +75,57 @@ export function useEmbeddedTerminalController({
   const [lastCommand, setLastCommand] = useState<string | null>(null);
   const initialThemeRef = useRef(TERMINAL_THEMES[terminalTheme]);
   const activeTheme = TERMINAL_THEMES[terminalTheme];
+  const threadId = thread?.id ?? null;
+  const threadProviderId = thread?.providerId ?? null;
+  const threadProjectPath = thread?.projectPath ?? null;
+  const launchRequestId = launchRequest?.launchId ?? null;
+  const launchRequestProviderId = launchRequest?.providerId ?? null;
+  const launchRequestProjectPath = launchRequest?.projectPath ?? null;
+  const launchRequestKnownThreadIds = launchRequest?.knownThreadIds ?? null;
 
   const threadKey = useMemo(() => {
-    if (!thread) {
+    if (!threadId || !threadProviderId || !threadProjectPath) {
       return null;
     }
-    return `${thread.providerId}:${thread.id}:${thread.projectPath}:${terminalTheme}`;
-  }, [terminalTheme, thread]);
+    return `${threadProviderId}:${threadId}:${threadProjectPath}`;
+  }, [threadId, threadProjectPath, threadProviderId]);
 
   const launchTarget = useMemo<SessionLaunchTarget | null>(() => {
-    if (launchRequest) {
+    if (
+      launchRequestId !== null &&
+      launchRequestProviderId &&
+      launchRequestProjectPath &&
+      launchRequestKnownThreadIds
+    ) {
       return {
         mode: "new",
-        key: `new:${launchRequest.launchId}:${terminalTheme}`,
-        launchId: launchRequest.launchId,
-        providerId: launchRequest.providerId,
-        projectPath: launchRequest.projectPath,
-        knownThreadIds: launchRequest.knownThreadIds,
+        key: `new:${launchRequestId}`,
+        launchId: launchRequestId,
+        providerId: launchRequestProviderId,
+        projectPath: launchRequestProjectPath,
+        knownThreadIds: launchRequestKnownThreadIds,
       };
     }
-    if (!thread || !threadKey) {
+    if (!threadId || !threadProviderId || !threadProjectPath || !threadKey) {
       return null;
     }
     return {
       mode: "resume",
       key: threadKey,
-      threadId: thread.id,
-      providerId: thread.providerId,
-      projectPath: thread.projectPath,
+      threadId,
+      providerId: threadProviderId,
+      projectPath: threadProjectPath,
     };
-  }, [launchRequest, terminalTheme, thread, threadKey]);
+  }, [
+    launchRequestId,
+    launchRequestKnownThreadIds,
+    launchRequestProjectPath,
+    launchRequestProviderId,
+    threadId,
+    threadKey,
+    threadProjectPath,
+    threadProviderId,
+  ]);
 
   const activeProviderId = useMemo<ThreadProviderId | null>(() => {
     const providerId = launchTarget?.providerId ?? thread?.providerId;
@@ -362,6 +386,7 @@ export function useEmbeddedTerminalController({
     queueRemoteResize,
     tuneHelperTextarea,
     writeInputToSession,
+    onActiveSessionExit,
   });
 
   useTerminalSessionLifecycle({

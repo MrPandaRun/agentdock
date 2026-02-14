@@ -9,8 +9,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import type {
+  EmbeddedTerminalNewThreadLaunch,
+  NewThreadBindingStatus,
+} from "@/hooks/useThreads";
 import type { AgentThreadSummary, RightPaneMode } from "@/types";
-import type { EmbeddedTerminalNewThreadLaunch } from "@/hooks/useThreads";
 import {
   isCodexProvider,
   isOpenCodeProvider,
@@ -23,6 +26,7 @@ export interface ThreadHeaderProps {
   rightPaneMode: RightPaneMode;
   selectedThread: AgentThreadSummary | null;
   newThreadLaunch: EmbeddedTerminalNewThreadLaunch | null;
+  newThreadBindingStatus: NewThreadBindingStatus | null;
   loadingMessages: boolean;
   showToolEvents: boolean;
   toolCount: number;
@@ -38,6 +42,7 @@ export function ThreadHeader({
   rightPaneMode,
   selectedThread,
   newThreadLaunch,
+  newThreadBindingStatus,
   loadingMessages,
   showToolEvents,
   toolCount,
@@ -61,6 +66,12 @@ export function ThreadHeader({
       : (selectedThread?.projectPath ?? "-");
   const headerProviderName = providerDisplayName(headerProviderId);
   const headerProviderAccent = providerAccentClass(headerProviderId);
+  const terminalStatusText =
+    newThreadBindingStatus === "starting"
+      ? "Starting new session..."
+      : newThreadBindingStatus === "awaiting_discovery"
+        ? "Session running. Waiting for first input to persist thread id..."
+        : "Embedded terminal";
 
   return (
     <CardHeader className="px-4 py-3 pb-2.5">
@@ -90,7 +101,7 @@ export function ThreadHeader({
         <div className="grid justify-items-end gap-1 text-xs text-muted-foreground">
           <span>
             {rightPaneMode === "terminal"
-              ? "Embedded terminal"
+              ? terminalStatusText
               : loadingMessages
                 ? "Syncing..."
                 : "Ready"}
@@ -129,6 +140,9 @@ export function ThreadHeader({
               >
                 <Monitor className="h-3 w-3" />
                 UI
+                <span className="ml-0.5 text-[8px] lowercase text-muted-foreground/65">
+                  alpha
+                </span>
               </Button>
             </div>
             {rightPaneMode === "ui" ? (

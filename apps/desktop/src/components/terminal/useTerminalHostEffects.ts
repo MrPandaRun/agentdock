@@ -28,6 +28,7 @@ interface UseTerminalHostEffectsProps {
   queueRemoteResize: (cols: number, rows: number) => void;
   tuneHelperTextarea: () => void;
   writeInputToSession: (data: string) => void;
+  onActiveSessionExit?: () => void;
 }
 
 export function useTerminalHostEffects({
@@ -45,6 +46,7 @@ export function useTerminalHostEffects({
   queueRemoteResize,
   tuneHelperTextarea,
   writeInputToSession,
+  onActiveSessionExit,
 }: UseTerminalHostEffectsProps) {
   useEffect(() => {
     if (!hostRef.current) {
@@ -213,6 +215,7 @@ export function useTerminalHostEffects({
           if (event.payload.sessionId === sessionIdRef.current) {
             terminal.write(exitLine);
             sessionIdRef.current = null;
+            onActiveSessionExit?.();
           }
         },
       );
@@ -257,6 +260,7 @@ export function useTerminalHostEffects({
     terminalRef,
     tuneHelperTextarea,
     writeInputToSession,
+    onActiveSessionExit,
   ]);
 
   useEffect(() => {
@@ -266,20 +270,5 @@ export function useTerminalHostEffects({
     }
     terminal.options.theme = activeTheme.xterm;
     terminal.options.minimumContrastRatio = activeTheme.minimumContrastRatio;
-
-    const activeSessionId = sessionIdRef.current;
-    if (!activeSessionId) {
-      return;
-    }
-    const activeSession = sessionsByIdRef.current.get(activeSessionId);
-    if (!activeSession) {
-      return;
-    }
-
-    terminal.reset();
-    terminal.clear();
-    if (activeSession.buffer) {
-      terminal.write(activeSession.buffer);
-    }
-  }, [activeTheme, sessionIdRef, sessionsByIdRef, terminalRef]);
+  }, [activeTheme, terminalRef]);
 }
