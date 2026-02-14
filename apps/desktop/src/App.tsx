@@ -61,12 +61,14 @@ function App() {
     rightPaneMode,
     creatingThreadFolderKey,
     newThreadLaunch,
+    newThreadBindingStatus,
     setRightPaneMode,
     setError,
     loadThreads,
     handleSelectThread,
     handleCreateThreadInFolder,
     handleNewThreadLaunchSettled,
+    handleEmbeddedTerminalSessionExit,
     handleSendMessage,
   } = useThreads();
 
@@ -171,7 +173,7 @@ function App() {
           sidebarCollapsed={sidebarCollapsed}
           folderGroups={folderGroups}
           selectedFolderKey={selectedFolderKey}
-          selectedThreadId={selectedThreadId}
+          selectedThreadId={newThreadLaunch ? null : selectedThreadId}
           loadingThreads={loadingThreads}
           creatingThreadFolderKey={creatingThreadFolderKey}
           appTheme={appTheme}
@@ -211,6 +213,7 @@ function App() {
             rightPaneMode={rightPaneMode}
             selectedThread={selectedThread}
             newThreadLaunch={newThreadLaunch}
+            newThreadBindingStatus={newThreadBindingStatus}
             loadingMessages={loadingMessages}
             showToolEvents={showToolEvents}
             toolCount={toolCount}
@@ -249,6 +252,7 @@ function App() {
                   launchRequest={newThreadLaunch}
                   terminalTheme={resolvedTheme}
                   onLaunchRequestSettled={handleNewThreadLaunchSettled}
+                  onActiveSessionExit={handleEmbeddedTerminalSessionExit}
                   onError={setError}
                 />
               </div>

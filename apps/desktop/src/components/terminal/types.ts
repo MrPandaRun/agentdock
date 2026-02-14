@@ -11,6 +11,11 @@ export interface EmbeddedTerminalNewThreadLaunch {
   knownThreadIds: string[];
 }
 
+export interface EmbeddedTerminalLaunchSettledPayload {
+  launch: EmbeddedTerminalNewThreadLaunch;
+  started: boolean;
+}
+
 export interface StartEmbeddedTerminalResponse {
   sessionId: string;
   command: string;

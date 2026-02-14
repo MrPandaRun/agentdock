@@ -11,7 +11,7 @@ import type {
 import type { TerminalTheme } from "@/types";
 
 import type {
-  EmbeddedTerminalNewThreadLaunch,
+  EmbeddedTerminalLaunchSettledPayload,
   SessionLaunchTarget,
   StartEmbeddedTerminalResponse,
   TerminalSessionState,
@@ -24,7 +24,7 @@ interface UseTerminalSessionLifecycleProps {
   fitAddonRef: MutableRefObject<FitAddon | null>;
   launchTarget: SessionLaunchTarget | null;
   onError?: (message: string | null) => void;
-  onLaunchRequestSettled?: (launch: EmbeddedTerminalNewThreadLaunch) => void;
+  onLaunchRequestSettled?: (payload: EmbeddedTerminalLaunchSettledPayload) => void;
   queueRemoteResize: (cols: number, rows: number) => void;
   refreshRequestId: number;
   sessionIdRef: MutableRefObject<string | null>;
@@ -76,6 +76,7 @@ export function useTerminalSessionLifecycle({
     let cancelled = false;
 
     const startSession = async () => {
+      let started = false;
       setIsSwitchingThread(true);
       setStarting(false);
       if (forceRestart) {
@@ -176,6 +177,7 @@ export function useTerminalSessionLifecycle({
           hasUserInput: false,
           lastTouchedAt: Date.now(),
         };
+        started = true;
         sessionsByThreadRef.current.set(launchTarget.key, session);
         sessionsByIdRef.current.set(response.sessionId, session);
         sessionIdRef.current = response.sessionId;
@@ -195,10 +197,13 @@ export function useTerminalSessionLifecycle({
       } finally {
         if (launchTarget.mode === "new") {
           onLaunchRequestSettled?.({
-            launchId: launchTarget.launchId,
-            providerId: launchTarget.providerId,
-            projectPath: launchTarget.projectPath,
-            knownThreadIds: launchTarget.knownThreadIds,
+            launch: {
+              launchId: launchTarget.launchId,
+              providerId: launchTarget.providerId,
+              projectPath: launchTarget.projectPath,
+              knownThreadIds: launchTarget.knownThreadIds,
+            },
+            started,
           });
         }
         if (forceRestart) {

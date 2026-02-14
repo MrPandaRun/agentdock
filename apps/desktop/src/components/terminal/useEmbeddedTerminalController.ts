@@ -11,6 +11,7 @@ import { isSupportedProvider } from "@/lib/provider";
 import type { TerminalTheme, ThreadProviderId } from "@/types";
 
 import type {
+  EmbeddedTerminalLaunchSettledPayload,
   EmbeddedTerminalNewThreadLaunch,
   EmbeddedTerminalThread,
   SessionLaunchTarget,
@@ -24,7 +25,8 @@ interface UseEmbeddedTerminalControllerProps {
   thread: EmbeddedTerminalThread | null;
   terminalTheme: TerminalTheme;
   launchRequest?: EmbeddedTerminalNewThreadLaunch | null;
-  onLaunchRequestSettled?: (launch: EmbeddedTerminalNewThreadLaunch) => void;
+  onLaunchRequestSettled?: (payload: EmbeddedTerminalLaunchSettledPayload) => void;
+  onActiveSessionExit?: () => void;
   onError?: (message: string | null) => void;
 }
 
@@ -50,6 +52,7 @@ export function useEmbeddedTerminalController({
   terminalTheme,
   launchRequest,
   onLaunchRequestSettled,
+  onActiveSessionExit,
   onError,
 }: UseEmbeddedTerminalControllerProps): UseEmbeddedTerminalControllerResult {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -383,6 +386,7 @@ export function useEmbeddedTerminalController({
     queueRemoteResize,
     tuneHelperTextarea,
     writeInputToSession,
+    onActiveSessionExit,
   });
 
   useTerminalSessionLifecycle({
