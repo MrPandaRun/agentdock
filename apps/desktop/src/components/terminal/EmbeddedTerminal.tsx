@@ -44,9 +44,12 @@ export function EmbeddedTerminal({
     isSwitchingThread,
     starting,
     isRefreshing,
+    isOpeningHappy,
     refreshError,
+    happyError,
     lastCommand,
     handleRefreshSession,
+    handleOpenInHappy,
   } = useEmbeddedTerminalController({
     thread,
     terminalTheme,
@@ -150,15 +153,34 @@ export function EmbeddedTerminal({
         >
           Refresh failed: {refreshError}
         </div>
+      ) : happyError ? (
+        <div
+          className="pointer-events-none absolute left-1.5 top-7 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
+          style={{
+            borderColor: "rgba(244, 63, 94, 0.5)",
+            backgroundColor:
+              terminalTheme === "light"
+                ? "rgba(255, 241, 242, 0.97)"
+                : "rgba(127, 29, 29, 0.35)",
+            color:
+              terminalTheme === "light"
+                ? "rgb(159, 18, 57)"
+                : "rgba(254, 205, 211, 0.96)",
+          }}
+        >
+          Happy integration failed: {happyError}
+        </div>
       ) : null}
       <TerminalToolbar
         helpOpen={helpOpen}
         helpButtonRef={helpButtonRef}
         isRefreshing={isRefreshing}
+        isOpeningHappy={isOpeningHappy}
         isSwitchingThread={isSwitchingThread}
         starting={starting}
         theme={activeTheme}
         onRefresh={handleRefreshSession}
+        onOpenHappy={() => void handleOpenInHappy()}
         onToggleHelp={() => setHelpOpen((open) => !open)}
       />
       <TerminalHelpPopover

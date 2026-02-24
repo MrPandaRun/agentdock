@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -40,12 +41,16 @@ interface UseEmbeddedTerminalControllerResult {
   isSwitchingThread: boolean;
   starting: boolean;
   isRefreshing: boolean;
+  isOpeningHappy: boolean;
   refreshError: string | null;
+  happyError: string | null;
   lastCommand: string | null;
   handleRefreshSession: () => void;
+  handleOpenInHappy: () => Promise<void>;
 }
 
 const SESSION_BUFFER_MAX_CHARS = 800_000;
+const HAPPY_GITHUB_URL = "https://github.com/slopus/happy";
 
 export function useEmbeddedTerminalController({
   thread,
@@ -70,8 +75,10 @@ export function useEmbeddedTerminalController({
   const [isSwitchingThread, setIsSwitchingThread] = useState(false);
   const [starting, setStarting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isOpeningHappy, setIsOpeningHappy] = useState(false);
   const [refreshRequestId, setRefreshRequestId] = useState(0);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [happyError, setHappyError] = useState<string | null>(null);
   const [lastCommand, setLastCommand] = useState<string | null>(null);
   const initialThemeRef = useRef(TERMINAL_THEMES[terminalTheme]);
   const activeTheme = TERMINAL_THEMES[terminalTheme];
@@ -144,6 +151,7 @@ export function useEmbeddedTerminalController({
 
   useEffect(() => {
     setRefreshError(null);
+    setHappyError(null);
   }, [launchTarget?.key]);
 
   const handleRefreshSession = useCallback(() => {
@@ -158,6 +166,46 @@ export function useEmbeddedTerminalController({
     setIsRefreshing(true);
     setRefreshRequestId((value) => value + 1);
   }, [isRefreshing, isSwitchingThread, launchTarget, starting]);
+
+  const handleOpenInHappy = useCallback(async () => {
+    if (isOpeningHappy || isRefreshing || starting || isSwitchingThread) {
+      return;
+    }
+
+    if (!launchTarget) {
+      setHappyError("Select a thread before opening Happy integration.");
+      return;
+    }
+
+    if (launchTarget.providerId !== "claude_code" && launchTarget.providerId !== "codex") {
+      setHappyError("Happy integration currently supports Claude Code and Codex only.");
+      return;
+    }
+
+    setHappyError(null);
+    setIsOpeningHappy(true);
+
+    try {
+      const happyInstalled = await invoke<boolean>("is_happy_installed");
+      if (!happyInstalled) {
+        await openUrl(HAPPY_GITHUB_URL);
+        return;
+      }
+
+      await invoke("open_thread_in_happy", {
+        request: {
+          providerId: launchTarget.providerId,
+          threadId: launchTarget.mode === "resume" ? launchTarget.threadId : null,
+          projectPath: launchTarget.projectPath,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setHappyError(message);
+    } finally {
+      setIsOpeningHappy(false);
+    }
+  }, [isOpeningHappy, isRefreshing, isSwitchingThread, launchTarget, starting]);
 
   const queueRemoteResize = useCallback(
     (cols: number, rows: number) => {
@@ -422,8 +470,11 @@ export function useEmbeddedTerminalController({
     isSwitchingThread,
     starting,
     isRefreshing,
+    isOpeningHappy,
     refreshError,
+    happyError,
     lastCommand,
     handleRefreshSession,
+    handleOpenInHappy,
   };
 }

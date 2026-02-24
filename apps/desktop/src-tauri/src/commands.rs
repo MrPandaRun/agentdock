@@ -4,8 +4,8 @@ use crate::payloads::{
     ClaudeThreadRuntimeStatePayload, CloseEmbeddedTerminalRequest, CodexThreadRuntimeStatePayload,
     GetClaudeThreadRuntimeStateRequest, GetCodexThreadRuntimeStateRequest,
     GetOpenCodeThreadRuntimeStateRequest,
-    OpenCodeThreadRuntimeStatePayload, OpenNewThreadInTerminalRequest, OpenThreadInTerminalRequest,
-    OpenThreadInTerminalResponse, ResizeEmbeddedTerminalRequest,
+    OpenCodeThreadRuntimeStatePayload, OpenNewThreadInTerminalRequest, OpenThreadInHappyRequest,
+    OpenThreadInTerminalRequest, OpenThreadInTerminalResponse, ResizeEmbeddedTerminalRequest,
     StartEmbeddedTerminalRequest, StartEmbeddedTerminalResponse,
     StartNewEmbeddedTerminalRequest, ThreadSummaryPayload,
     WriteEmbeddedTerminalInputRequest,
@@ -71,6 +71,25 @@ pub async fn open_thread_in_terminal(
     })
     .await
     .map_err(|error| format!("Failed to open terminal session: {error}"))?
+}
+
+#[tauri::command]
+pub async fn open_thread_in_happy(
+    request: OpenThreadInHappyRequest,
+) -> Result<OpenThreadInTerminalResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let provider_id = parse_provider_for_happy_launch(&request.provider_id)?;
+        terminal::open_thread_in_happy(provider_id, request.thread_id.as_deref(), request.project_path.as_deref())
+    })
+    .await
+    .map_err(|error| format!("Failed to open Happy integration: {error}"))?
+}
+
+#[tauri::command]
+pub async fn is_happy_installed() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(terminal::is_happy_installed)
+        .await
+        .map_err(|error| format!("Failed to check Happy installation: {error}"))?
 }
 
 #[tauri::command]
@@ -164,4 +183,15 @@ fn parse_provider_for_terminal_launch(raw: &str) -> Result<ProviderId, String> {
 
 fn parse_provider_for_new_thread_launch(raw: &str) -> Result<ProviderId, String> {
     parse_provider_id(raw).map_err(|_| format!("Unsupported provider for new thread launch: {raw}"))
+}
+
+fn parse_provider_for_happy_launch(raw: &str) -> Result<ProviderId, String> {
+    let provider_id = parse_provider_id(raw)
+        .map_err(|_| format!("Unsupported provider for Happy integration: {raw}"))?;
+    match provider_id {
+        ProviderId::ClaudeCode | ProviderId::Codex => Ok(provider_id),
+        ProviderId::OpenCode => Err(
+            "Happy integration currently supports claude_code and codex only".to_string(),
+        ),
+    }
 }

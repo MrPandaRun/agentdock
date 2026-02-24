@@ -21,6 +21,8 @@ pub fn run() {
             commands::get_codex_thread_runtime_state,
             commands::get_opencode_thread_runtime_state,
             commands::open_thread_in_terminal,
+            commands::open_thread_in_happy,
+            commands::is_happy_installed,
             commands::open_new_thread_in_terminal,
             commands::start_embedded_terminal,
             commands::start_new_embedded_terminal,
