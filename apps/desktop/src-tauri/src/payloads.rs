@@ -67,6 +67,14 @@ pub struct OpenThreadInTerminalRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OpenThreadInHappyRequest {
+    pub provider_id: String,
+    pub thread_id: Option<String>,
+    pub project_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpenNewThreadInTerminalRequest {
     pub provider_id: String,
     pub project_path: Option<String>,

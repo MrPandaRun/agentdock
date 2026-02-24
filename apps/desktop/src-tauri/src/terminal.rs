@@ -51,6 +51,25 @@ pub fn open_new_thread_in_terminal(
     })
 }
 
+pub fn open_thread_in_happy(
+    provider_id: ProviderId,
+    thread_id: Option<&str>,
+    project_path: Option<&str>,
+) -> Result<OpenThreadInTerminalResponse, String> {
+    ensure_command_available("happy", "Happy CLI")?;
+    let command = build_happy_command_from_parts(provider_id, thread_id, project_path)?;
+    launch_in_terminal(&command)?;
+    Ok(OpenThreadInTerminalResponse {
+        launched: true,
+        command,
+        terminal_app: "Terminal".to_string(),
+    })
+}
+
+pub fn is_happy_installed() -> Result<bool, String> {
+    command_available("happy")
+}
+
 pub fn start_embedded_terminal(
     app: tauri::AppHandle,
     provider_id: ProviderId,
@@ -421,6 +440,64 @@ fn build_new_thread_command_from_parts(
     start
 }
 
+fn build_happy_command_from_parts(
+    provider_id: ProviderId,
+    thread_id: Option<&str>,
+    project_path: Option<&str>,
+) -> Result<String, String> {
+    let command = match provider_id {
+        ProviderId::ClaudeCode => {
+            if let Some(thread_id) = thread_id {
+                format!("happy --resume {}", shell_quote(thread_id))
+            } else {
+                "happy".to_string()
+            }
+        }
+        ProviderId::Codex => {
+            if let Some(thread_id) = thread_id {
+                format!("happy codex resume {}", shell_quote(thread_id))
+            } else {
+                "happy codex".to_string()
+            }
+        }
+        ProviderId::OpenCode => {
+            return Err(
+                "Happy integration currently supports claude_code and codex only".to_string(),
+            )
+        }
+    };
+
+    let project_path = project_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty() && *path != ".");
+
+    if let Some(path) = project_path {
+        return Ok(format!("cd {} && {command}", shell_quote(path)));
+    }
+
+    Ok(command)
+}
+
+fn ensure_command_available(command: &str, command_label: &str) -> Result<(), String> {
+    let available = command_available(command)?;
+    if available {
+        return Ok(());
+    }
+
+    Err(format!(
+        "{command_label} is not available in PATH. Install it first, then retry."
+    ))
+}
+
+fn command_available(command: &str) -> Result<bool, String> {
+    let output = Command::new("sh")
+        .arg("-lc")
+        .arg(format!("command -v {} >/dev/null 2>&1", shell_quote(command)))
+        .output()
+        .map_err(|error| format!("Failed to check command availability: {error}"))?;
+    Ok(output.status.success())
+}
+
 #[cfg(target_os = "macos")]
 fn launch_in_terminal(command: &str) -> Result<(), String> {
     let escaped = escape_applescript(command);
@@ -460,8 +537,8 @@ mod tests {
     use provider_contract::ProviderId;
 
     use super::{
-        build_new_thread_command_from_parts, build_resume_command_from_parts, clamp_terminal_cols,
-        clamp_terminal_rows, shell_quote,
+        build_happy_command_from_parts, build_new_thread_command_from_parts,
+        build_resume_command_from_parts, clamp_terminal_cols, clamp_terminal_rows, shell_quote,
     };
 
     #[test]
@@ -481,6 +558,34 @@ mod tests {
     fn build_new_thread_command_supports_provider_without_project_path() {
         let command = build_new_thread_command_from_parts(ProviderId::OpenCode, None);
         assert_eq!(command, "opencode");
+    }
+
+    #[test]
+    fn build_happy_resume_command_for_claude() {
+        let command = build_happy_command_from_parts(
+            ProviderId::ClaudeCode,
+            Some("thread-id"),
+            Some("/tmp/proj"),
+        )
+        .expect("happy command should be built");
+        assert_eq!(command, "cd '/tmp/proj' && happy --resume 'thread-id'");
+    }
+
+    #[test]
+    fn build_happy_new_command_for_codex_without_project_path() {
+        let command = build_happy_command_from_parts(ProviderId::Codex, None, None)
+            .expect("happy command should be built");
+        assert_eq!(command, "happy codex");
+    }
+
+    #[test]
+    fn build_happy_command_rejects_unsupported_provider() {
+        let error = build_happy_command_from_parts(ProviderId::OpenCode, None, None)
+            .expect_err("opencode should be rejected");
+        assert_eq!(
+            error,
+            "Happy integration currently supports claude_code and codex only"
+        );
     }
 
     #[test]
