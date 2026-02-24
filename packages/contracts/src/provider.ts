@@ -40,16 +40,9 @@ export interface ThreadSummary {
   lastActiveAt: string;
 }
 
-export interface SwitchContextSummary {
-  objective: string;
-  constraints: string[];
-  pendingTasks: string[];
-}
-
 export interface ResumeThreadRequest {
   threadId: string;
   projectPath?: string;
-  contextSummary?: SwitchContextSummary;
 }
 
 export interface ResumeThreadResult {
@@ -65,7 +58,6 @@ export interface ProviderAdapter {
   ): Promise<ProviderHealthCheckResult>;
   listThreads(projectPath?: string): Promise<ThreadSummary[]>;
   resumeThread(request: ResumeThreadRequest): Promise<ResumeThreadResult>;
-  summarizeSwitchContext(threadId: string): Promise<SwitchContextSummary>;
 }
 
 export const SUPPORTED_PROVIDERS: ProviderId[] = ["codex", "claude_code", "opencode"];

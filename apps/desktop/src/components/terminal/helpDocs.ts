@@ -1,6 +1,5 @@
 import type { ThreadProviderId } from "@/types";
 
-export const MODE_TOGGLE_SHORTCUT_LABEL = "Cmd/Ctrl+Shift+M";
 export const AGENT_MODE_SWITCH_SHORTCUT_LABEL = "Shift+Tab";
 
 export interface TerminalProviderHelpDoc {
@@ -19,7 +18,6 @@ export const TERMINAL_COMMON_SHORTCUTS = [
   "Shift+Enter: insert newline without submitting",
   "Cmd/Ctrl+C: copy selected text",
   "Cmd/Ctrl+V: paste clipboard into the CLI session",
-  `${MODE_TOGGLE_SHORTCUT_LABEL}: toggle UI/Terminal mode`,
   `${AGENT_MODE_SWITCH_SHORTCUT_LABEL}: switch agent mode/model in supported CLIs`,
 ] as const;
 
@@ -28,7 +26,7 @@ export const TERMINAL_PROVIDER_HELP_DOCS: Record<ThreadProviderId, TerminalProvi
     modeNote:
       "Runs Claude Code CLI directly in AgentDock Terminal and preserves native Claude session behavior.",
     quickStartSteps: [
-      "Select a Claude thread on the left and keep the right pane in Terminal mode.",
+      "Select a Claude thread on the left.",
       "Type your prompt and press Enter to submit. Use Shift+Enter for multiline prompts.",
       "If output stalls or context looks wrong, use Refresh to rebuild the embedded session.",
     ],

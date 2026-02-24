@@ -1,47 +1,61 @@
-# AgentDock V1 架构设计文档
+# AgentDock V1 Architecture Design
 
-## 1. 文档目标
+> Historical architecture document (V1 planning baseline).
+> The errata section below is authoritative for current implementation as of 2026-02-24.
 
-本文档描述 AgentDock V1 的可实现架构方案，覆盖当前仓库已有结构与近期实现边界，供研发、测试和后续扩展（V1.1）使用。
+## Historical + Errata (2026-02-24)
 
-V1 目标：
+| Topic | Historical Text | Current Implementation Truth |
+| --- | --- | --- |
+| Provider scope | Two providers (`codex`, `claude_code`) | Current code/contract scope: `codex`, `claude_code`, `opencode`. |
+| Adapter maturity | Dual-provider contract + adapter stubs | Adapters are implemented in `provider-codex`, `provider-claude`, and `provider-opencode`. |
+| Contract methods | Includes `summarizeSwitchContext` alignment | Current shared contract/trait includes `health_check`, `list_threads`, `resume_thread` only. |
+| Switch flow | Uses `summarize_switch_context` runtime call | This is a historical target flow, not a current contract API. |
+| Desktop interaction model | Broader thread-management assumptions | Current execution UI is terminal-only for thread continuation. |
 
-- 本地优先（local-first），不依赖云同步作为主路径。
-- 支持双 Provider：`codex`、`claude_code`。
-- 统一管理账号、配置、MCP、Skills、Thread，并支持手机端远程查看/操作入口。
+## 1. Document Goal
+
+This document describes an implementable architecture for AgentDock V1, covering the current repository baseline and near-term implementation boundaries, for engineering, testing, and follow-up extension work (V1.1).
+
+V1 goals:
+
+- Local-first, with no cloud sync dependency as the primary path
+- Support three providers: `codex`, `claude_code`, `opencode`
+- Unified management of accounts, configs, MCP, skills, and threads, plus mobile remote viewing/action entry
 
 ---
 
-## 2. 当前技术基线
+## 2. Current Technical Baseline
 
-- 桌面端：Tauri + React + TypeScript
-  - UI：`apps/desktop/src`
-  - Host：`apps/desktop/src-tauri`
-- 移动端：Expo + React Native + TypeScript
+- Desktop: Tauri + React + TypeScript
+  - UI: `apps/desktop/src`
+  - Host: `apps/desktop/src-tauri`
+- Mobile: Expo + React Native + TypeScript
   - `apps/mobile`
-- 共享 TS 契约：
+- Shared TS contracts:
   - `packages/contracts`
-- Rust Workspace：
+- Rust workspace:
   - `crates/provider-contract`
   - `crates/provider-codex`
   - `crates/provider-claude`
+  - `crates/provider-opencode`
   - `crates/agentdock-core`
-- 数据存储：SQLite（迁移在 `crates/agentdock-core/migrations`）
-- 包管理：Bun Workspace（`bun.lockb`）
+- Data storage: SQLite (migrations under `crates/agentdock-core/migrations`)
+- Package manager: Bun workspace (`bun.lockb`)
 
 ---
 
-## 3. 架构原则
+## 3. Architectural Principles
 
-- 本地优先：核心状态本地可读可恢复。
-- 契约优先：TS 与 Rust 共享语义一致的 Provider 契约。
-- 适配器隔离：Provider 差异收敛到 adapter 层。
-- 渐进扩展：V1 保留远程/relay 接入点，不提前引入复杂云状态。
-- 安全默认：凭据不落明文，远程控制最小权限起步。
+- Local-first: core state is readable and recoverable locally
+- Contract-first: TS and Rust share semantically aligned provider contracts
+- Adapter isolation: provider-specific differences are converged into the adapter layer
+- Incremental extensibility: keep remote/relay extension points in V1 without introducing early cloud-state complexity
+- Secure by default: no plaintext credentials; remote control starts from least privilege
 
 ---
 
-## 4. 系统上下文图
+## 4. System Context Diagram
 
 ```mermaid
 flowchart LR
@@ -49,6 +63,7 @@ flowchart LR
     M["Developer (Mobile)"] --> A["AgentDock Mobile App"]
     D --> C1["Codex CLI / API"]
     D --> C2["Claude Code CLI / API"]
+    D --> C3["OpenCode CLI / API"]
     D --> K["OS Keychain"]
     D --> FS["Local Filesystem (Thread logs / configs)"]
     D --> DB["SQLite (local index/config)"]
@@ -59,7 +74,7 @@ flowchart LR
 
 ---
 
-## 5. 容器与模块分层
+## 5. Container and Module Layering
 
 ```mermaid
 flowchart TB
@@ -75,11 +90,14 @@ flowchart TB
       PC["provider-contract"]
       COD["provider-codex"]
       CLA["provider-claude"]
+      OPC["provider-opencode"]
       CMD --> CORE
       CMD --> COD
       CMD --> CLA
+      CMD --> OPC
       COD -.implements.-> PC
       CLA -.implements.-> PC
+      OPC -.implements.-> PC
     end
 
     subgraph Shared["packages/contracts"]
@@ -97,15 +115,15 @@ flowchart TB
 
 ---
 
-## 6. 核心运行流程
+## 6. Core Runtime Flows
 
-### 6.1 桌面启动与数据库初始化
+### 6.1 Desktop Startup and Database Initialization
 
-当前实现在桌面 Host 启动时执行：
+Current implementation executes on desktop host startup:
 
-- 获取 app data 目录
-- 创建 `agentdock.db`
-- 运行 `init_db` + `run_migrations`
+- Resolve app data directory
+- Create `agentdock.db`
+- Run `init_db` + `run_migrations`
 
 ```mermaid
 sequenceDiagram
@@ -125,7 +143,7 @@ sequenceDiagram
     Host-->>App: app ready
 ```
 
-### 6.2 Thread 跨 Provider 切换（V1 目标流程）
+### 6.2 Cross-Provider Thread Switch (Historical Target Flow, Not Current Contract API)
 
 ```mermaid
 sequenceDiagram
@@ -150,7 +168,7 @@ sequenceDiagram
     end
 ```
 
-### 6.3 手机远程查看/操作（V1 设计路径）
+### 6.3 Mobile Remote View/Action (V1 Design Path)
 
 ```mermaid
 sequenceDiagram
@@ -172,9 +190,9 @@ sequenceDiagram
 
 ---
 
-## 7. 数据模型（V1）
+## 7. Data Model (V1)
 
-以下模型来自当前迁移文件 `0001_init.sql`。
+The following entities are based on migration `0001_init.sql`.
 
 ```mermaid
 erDiagram
@@ -269,7 +287,7 @@ erDiagram
 
 ---
 
-## 8. 部署与网络拓扑（V1）
+## 8. Deployment and Network Topology (V1)
 
 ```mermaid
 flowchart LR
@@ -292,74 +310,74 @@ flowchart LR
 
 ---
 
-## 9. 契约与边界设计
+## 9. Contract and Boundary Design
 
-### 9.1 Provider 契约（双端同步）
+### 9.1 Provider Contracts (Dual-Side Sync)
 
-- TS：`packages/contracts/src/provider.ts`
-- Rust：`crates/provider-contract/src/lib.rs`
+- TS: `packages/contracts/src/provider.ts`
+- Rust: `crates/provider-contract/src/lib.rs`
 
-同步约束：
+Sync constraints:
 
-- Provider ID：`codex`、`claude_code`
-- 错误码语义一致（如 `not_implemented`）
-- `healthCheck/listThreads/resumeThread/summarizeSwitchContext` 与 Rust trait 对齐
+- Provider IDs: `codex`, `claude_code`, `opencode`
+- Consistent error-code semantics (for example `not_implemented`)
+- `healthCheck/listThreads/resumeThread` aligned with Rust traits
 
-### 9.2 适配器边界
+### 9.2 Adapter Boundaries
 
-- `provider-codex`、`provider-claude` 作为实现层，依赖 `provider-contract`
-- UI 与业务层不直接依赖 Provider 细节协议
-- 新增 Provider（如 Gemini/OpenCode）应通过新增 crate 实现 trait，而非修改上层流程
-
----
-
-## 10. 安全与可靠性设计
-
-- 凭据仅保存 keychain 引用，不落 SQLite 明文。
-- 数据库默认开启外键约束（`PRAGMA foreign_keys=ON`）。
-- 迁移执行可重入，避免重复启动导致 schema 异常。
-- 远程控制默认最小权限，写操作需要明确白名单策略。
-- Provider 调用超时、错误码、失败回退（prompt-only）需要统一策略（V1 逐步实现）。
+- `provider-codex`, `provider-claude`, and `provider-opencode` are implementation layers depending on `provider-contract`
+- UI and business layer must not depend directly on provider-specific protocol details
+- New providers should be added as new crates implementing the trait, instead of changing upper-layer workflows
 
 ---
 
-## 11. 可观测性建议（V1->V1.1）
+## 10. Security and Reliability Design
 
-- 本地日志分级：`INFO/WARN/ERROR`，按模块打标签（provider/db/remote/switch）。
-- 关键指标：
-  - Provider 健康检查成功率
-  - Thread 恢复成功率
-  - 切换耗时（P50/P95）
-  - 远程操作成功率
-- Switch 与 Remote 行为落事件表（当前已有 `switch_events`、`remote_sessions`）。
+- Credentials are stored as keychain references, not plaintext in SQLite
+- Foreign key constraints enabled by default in DB (`PRAGMA foreign_keys=ON`)
+- Migration execution is reentrant to avoid schema issues on repeated startup
+- Remote control starts with least privilege; write actions require explicit allowlist policy
+- Provider call timeout/error/fallback (prompt-only) should follow a unified strategy (gradually completed in V1)
 
 ---
 
-## 12. 演进计划
+## 11. Observability Recommendations (V1 -> V1.1)
 
-### V1（当前）
+- Local log levels: `INFO/WARN/ERROR`, with module tags (provider/db/remote/switch)
+- Key metrics:
+  - provider health-check success rate
+  - thread resume success rate
+  - switch latency (P50/P95)
+  - remote action success rate
+- Switch and remote actions should persist to event tables (already available: `switch_events`, `remote_sessions`)
 
-- 打通桌面与本地数据库初始化
-- 固化双 Provider 契约与 adapter stub
-- 建立统一数据模型与迁移机制
+---
+
+## 12. Evolution Plan
+
+### V1 (Current)
+
+- Connect desktop startup flow with local DB initialization
+- Solidify three-provider contracts and adapter implementations
+- Establish unified data model and migration mechanism
 
 ### V1.1
 
-- 接入 `gemini`、`opencode` provider adapter
-- 完善线程切换上下文摘要与失败回退策略
-- 增强远程控制安全配对与权限模型
+- Explore additional providers beyond current three-provider baseline
+- Improve switch-context strategy and failure fallback UX
+- Strengthen remote-control secure pairing and permission model
 
-### V2（方向）
+### V2 (Direction)
 
-- 团队协作与可选云同步
-- 更完整审计、策略引擎与插件生态
+- Team collaboration and optional cloud sync
+- More complete audit, policy engine, and plugin ecosystem
 
 ---
 
-## 13. 验收清单
+## 13. Acceptance Checklist
 
-- `bun run typecheck` 通过
-- `bun run test` 通过
-- 桌面应用启动后自动创建并迁移本地 SQLite
-- TS 与 Rust Provider 契约字段语义一致
-- 迁移新增遵循 append-only，不改历史迁移
+- `bun run typecheck` passes
+- `bun run test` passes
+- Desktop app auto-creates and migrates local SQLite on startup
+- TS and Rust provider contracts remain semantically aligned
+- New migrations follow append-only policy (no edits to historical migrations)

@@ -1,106 +1,119 @@
 # D-20260211-agent-control-plane-prd-v1
 
+> Historical planning document (2026-02-11).
+> The errata section below is authoritative for current implementation as of 2026-02-24.
+
+## Historical + Errata (2026-02-24)
+
+| Topic | Historical Text | Current Implementation Truth |
+| --- | --- | --- |
+| Provider scope | V1 starts with 2 providers (`Codex`, `Claude Code`) | Current code/contract scope is 3 providers: `codex`, `claude_code`, `opencode`. |
+| OpenCode status | `opencode` planned for V1.1 | `provider-opencode` is already implemented in code and included in desktop thread list/runtime-state flow. |
+| Desktop execution UX | Implies full thread center + switching UX as active scope | Current desktop is terminal-only for execution (`EmbeddedTerminal` + terminal launch commands). |
+| Switch orchestration API | Assumes full cross-provider summary orchestration path | Current shared contract exposes `health_check`, `list_threads`, `resume_thread` only; no `summarize_switch_context` method. |
+| Adapter maturity | Early-stage adapter planning | Adapters are real implementations (`provider-codex`, `provider-claude`, `provider-opencode`) with runtime-state support exposed by Tauri host commands. |
+
 ## Executive Summary
 
-做一个本地优先（local-first）的多 Agent 控制台，统一管理 `Codex`、`Claude Code`、`Gemini`、`OpenCode` 的账号、配置、MCP、skills，并提供类似 Codex Desktop 的线程（thread）会话中心与手机远程控制入口。
+Build a local-first multi-agent console that unifies management of accounts, configurations, MCP, and skills for `Codex`, `Claude Code`, `Gemini`, and `OpenCode`, and provides a Codex Desktop-like thread center plus a mobile remote-control entry.
 
-产品目标是把“多工具切换和状态分散”的成本降到最低：用户不再反复改配置、找历史会话、重复安装 MCP/skills，而是在一个控制台内完成连接、切换、延续和复用；离开电脑时也能用手机查看进度并执行关键操作。
+The product goal is to minimize the cost of "tool switching and fragmented state": users should no longer repeatedly edit configuration, search historical sessions, or reinstall MCP/skills. Instead, they can connect, switch, continue, and reuse everything in one control console; when away from desktop, they can still check progress and perform key operations from mobile.
 
 ## Product Positioning
 
-- 产品类型：开发者 AI Agent 控制平面（Agent Control Plane）
-- 核心价值：`一次配置，多端复用；统一线程，快速切换`
-- 竞品参考：`cc switch`（切换能力）+ `Codex Desktop`（线程管理体验）
-- 差异化：
-  - 不只切模型/供应商，而是管理完整工作上下文（账号 + 配置 + MCP + skills + thread）
-  - 本地优先，适合个人开发者和小团队先跑通流程
-  - 面向“AI coding workflow”而非通用聊天
+- Product type: developer AI Agent Control Plane
+- Core value: `configure once, reuse everywhere; unified threads, fast switching`
+- Competitive references: `cc switch` (switching capability) + `Codex Desktop` (thread management UX)
+- Differentiation:
+  - Not only model/vendor switching, but full working context management (account + config + MCP + skills + thread)
+  - Local-first, suitable for individuals and small teams to run workflows first
+  - Built for AI coding workflows, not generic chat
 
 ## Target Users
 
-1. 重度 AI 编程用户：同时使用 2-4 个代码 Agent
-2. 技术内容创作者：需要保存并复用大量 thread 上下文
-3. 小团队 Tech Lead：希望统一团队工具栈与工作方式
+1. Heavy AI coding users: use 2-4 coding agents in parallel
+2. Technical content creators: need to preserve and reuse large thread context
+3. Small-team tech leads: want standardized team tooling and workflows
 
 ## Problem Statement
 
-**当前痛点**
+**Current pain points**
 
-- 账号和 key 分散在不同 CLI/桌面应用
-- 配置格式不一致（模型、温度、路径、权限、环境变量）
-- MCP 和 skills 需要重复安装、逐个维护版本
-- thread 会话跨工具割裂，难检索、难续写、难交接
+- Accounts and keys are scattered across different CLIs/desktop apps
+- Configuration formats are inconsistent (model, temperature, path, permissions, env)
+- MCP and skills need repeated installation and per-tool version maintenance
+- Threads are fragmented across tools, hard to search, resume, and hand over
 
-**目标状态**
+**Target state**
 
-- 5 分钟内完成多 Agent 初始化
-- 15 秒内从一个 Agent 切到另一个 Agent 并带上上下文
-- 线程统一检索与恢复，减少“重新解释问题”的重复成本
+- Multi-agent initialization within 5 minutes
+- Switch from one agent to another with context in 15 seconds
+- Unified thread search/resume to reduce repeated problem re-explanation
 
 ## MVP Scope (V1)
 
 ### In Scope
 
-1. Provider 连接与账号管理（先支持 `Codex` + `Claude Code`）
-2. 配置中心（模型、默认参数、工作目录、环境变量模板）
-3. MCP Registry（安装、启停、权限范围、版本）
-4. Skills Center（导入、启停、版本状态、兼容性提示）
-5. Thread Center（会话列表、标签、搜索、恢复、跳转）
-6. 一键切换入口（从当前 thread 启动到另一个 provider）
-7. 手机远程控制（React Native）：查看 thread 状态、触发预设操作、查看最近执行结果
+1. Provider connection and account management (initially `Codex` + `Claude Code`)
+2. Configuration center (model, default params, working directory, env templates)
+3. MCP Registry (install, start/stop, permission scope, version)
+4. Skills Center (import, start/stop, version status, compatibility hints)
+5. Thread Center (list, tags, search, resume, jump)
+6. One-click switch entry (start from current thread on another provider)
+7. Mobile remote control (React Native): view thread status, trigger preset actions, view recent execution summaries
 
 ### Out of Scope
 
-1. 团队协作与云同步
-2. Mobile Web / PWA 远程端
-3. 复杂计费系统
-4. 非开发场景的通用聊天 UI
+1. Team collaboration and cloud sync
+2. Mobile Web / PWA remote endpoint
+3. Complex billing system
+4. Generic chat UI for non-development scenarios
 
 ## Core Modules
 
-### M01 Accounts & Profiles
+### M01 Accounts and Profiles
 
-- 多账户（工作/个人）与 provider 绑定
-- 凭据状态检查（有效/过期/缺失）
-- 本地加密存储（系统 Keychain）
+- Multi-account (work/personal) and provider binding
+- Credential state checks (valid/expired/missing)
+- Local encrypted storage (system keychain)
 
 ### M02 Config Control Center
 
-- provider 配置模板与覆盖层（global/project/profile）
-- 可视化差异比较（diff）
-- 快速导入导出
+- Provider config templates and override layers (global/project/profile)
+- Visual diff comparison
+- Fast import/export
 
 ### M03 MCP Registry
 
-- MCP server 列表、启动参数、权限策略
-- 按 thread 或按 profile 启用
-- 版本升级提示与回滚
+- MCP server list, startup parameters, permission policies
+- Enable by thread or by profile
+- Version upgrade hints and rollback
 
 ### M04 Skills Hub
 
-- skills 安装源管理（本地路径/Git）
-- 启停状态与版本一致性检查
-- provider 兼容矩阵（哪些技能在哪些 provider 可用）
+- Skills source management (local path/Git)
+- Start/stop state and version consistency checks
+- Provider compatibility matrix (which skill works with which provider)
 
 ### M05 Thread Center
 
-- 统一线程索引（provider、时间、项目、标签、状态）
-- 全文检索（标题/消息/标签）
-- Thread 快照（关键提示词、依赖、执行目录）
+- Unified thread index (provider/time/project/tag/status)
+- Full-text search (title/message/tag)
+- Thread snapshots (key prompts, dependencies, execution directory)
 
 ### M06 Switcher
 
-- 从 thread 直接切换 provider
-- 自动注入最小上下文摘要（最近目标、关键约束、未完成任务）
-- 切换失败时提供 fallback（只带 prompt，不带环境）
+- Switch provider directly from a thread
+- Auto-inject minimal context summary (latest objective, key constraints, pending tasks)
+- Fallback on switch failure (prompt only, no environment)
 
 ### M07 Mobile Remote (React Native)
 
-- 手机端访问控制台（React Native App，iOS/Android）
-- 远程查看：thread 列表、运行状态、最近日志摘要
-- 远程操作：暂停/继续、重试上一步、切换 provider（受权限策略约束）
-- 安全配对：二维码绑定 + 短时令牌 + 可撤销设备授权
-- 连接范围：V1 支持局域网与公网远程访问
+- Mobile console access (RN app on iOS/Android)
+- Remote visibility: thread list, runtime state, recent log summary
+- Remote actions: pause/continue, retry previous step, switch provider (constrained by policy)
+- Secure pairing: QR binding + short-lived tokens + revocable device authorization
+- Connectivity scope: V1 supports LAN and public network access
 
 ## Information Architecture
 
@@ -112,26 +125,26 @@
 6. Remote
 7. Settings
 
-## Technical Architecture (建议)
+## Technical Architecture (Recommended)
 
-- 桌面壳：`Tauri`（性能和系统权限更友好）
-- 前端：`React + TypeScript + Zustand + TanStack Query`
-- 手机端：`React Native + Expo + TypeScript`
-- 后端服务层：`Rust`（进程管理、文件系统监听、密钥桥接）
-- 通信：`WebSocket`（桌面端与手机端的实时状态同步）
-- 存储：
-  - `SQLite`：结构化配置和线程索引
-  - 文件索引：thread 原始日志映射
-  - 系统 Keychain：敏感凭据
-- 远程连接策略（MVP）：
-  - 同局域网直连优先
-  - 提供安全 relay（公网可用）
-  - relay 仅转发加密通道，不存储业务数据
-- 适配器层：
+- Desktop shell: `Tauri` (better performance and system permission integration)
+- Frontend: `React + TypeScript + Zustand + TanStack Query`
+- Mobile: `React Native + Expo + TypeScript`
+- Backend runtime layer: `Rust` (process management, filesystem watchers, keychain bridge)
+- Communication: `WebSocket` (real-time state sync between desktop and mobile)
+- Storage:
+  - `SQLite`: structured configs and thread index
+  - file index: thread raw log mapping
+  - system keychain: sensitive credentials
+- Remote connectivity strategy (MVP):
+  - prefer LAN direct connection
+  - provide secure relay for public-network availability
+  - relay forwards encrypted channels only and stores no business data
+- Adapter layer:
   - `provider-adapter-codex`
   - `provider-adapter-claude-code`
-  - `provider-adapter-gemini`（V1.1）
-  - `provider-adapter-opencode`（V1.1）
+  - `provider-adapter-gemini` (V1.1)
+  - `provider-adapter-opencode` (V1.1)
 
 ## Data Model (MVP)
 
@@ -146,83 +159,83 @@
 9. `remote_devices(id, device_name, paired_at, last_seen_at, revoked_at)`
 10. `remote_sessions(id, device_id, thread_id, action, result, created_at)`
 
-## Security & Reliability Baseline
+## Security and Reliability Baseline
 
-- API key 不落明文：只存 keychain 引用
-- thread 导入前做脱敏规则（可配置）
-- 所有外部命令执行加超时和日志
-- provider 适配器契约测试（防止上游格式变化导致解析崩溃）
-- 远程控制默认最小权限：先只开放“查看 + 安全操作白名单”
-- 手机端授权支持单设备吊销与全量失效（紧急登出）
+- API keys are never stored in plaintext, only keychain references
+- Apply configurable redaction rules before thread import
+- Add timeout and logging to all external command execution
+- Contract tests for provider adapters (prevent parser breakage due to upstream format changes)
+- Remote control starts with least privilege: view + safe allowlisted operations only
+- Mobile authorization supports single-device revoke and global invalidate (emergency logout)
 
 ## Delivery Roadmap (12 Weeks)
 
-1. Week 1-2：需求冻结 + 架构与数据模型落地 + 低保真原型
-2. Week 3-4：Provider 连接（Codex/Claude）+ 账号与配置中心
-3. Week 5-6：Thread Center（索引、搜索、恢复）
-4. Week 7-8：MCP Registry + Skills Hub
-5. Week 9-10：Switcher + RN 手机端只读看板 + 远程安全配对
-6. Week 11：RN 手机端白名单操作 + 稳定性修复 + 可观测性
-7. Week 12：内测发布（20-50 位种子用户）
+1. Week 1-2: requirement freeze + architecture/data model + low-fidelity prototype
+2. Week 3-4: provider connections (Codex/Claude) + account and config center
+3. Week 5-6: Thread Center (index/search/resume)
+4. Week 7-8: MCP Registry + Skills Hub
+5. Week 9-10: Switcher + RN mobile read-only board + secure remote pairing
+6. Week 11: RN mobile allowlisted operations + stability fixes + observability
+7. Week 12: internal beta release (20-50 seed users)
 
 ## Success Metrics (First 60 Days)
 
-1. 首次完成双 provider 连接时间 <= 10 分钟
-2. 线程恢复成功率 >= 95%
-3. 切换操作中位耗时 <= 8 秒
-4. 周活跃用户（WAU）留存 >= 35%
-5. 人均每周切换次数 >= 12
-6. 手机远程控制周使用渗透率 >= 25%
-7. 手机端远程操作成功率 >= 98%
+1. First-time dual-provider connection <= 10 minutes
+2. Thread resume success rate >= 95%
+3. Median switching latency <= 8 seconds
+4. WAU retention >= 35%
+5. Average switches per user per week >= 12
+6. Weekly mobile remote usage penetration >= 25%
+7. Mobile remote action success rate >= 98%
 
 ## Naming Options
 
-| Name             | 类型   | 含义                     | 子域名候选            |
-| ---------------- | ------ | ------------------------ | --------------------- |
-| AgentDock        | 主推   | Agent 的“停靠与调度港口” | `dock.mrpanda.run`    |
-| ThreadDock       | 主推   | 强调线程会话中心         | `threads.mrpanda.run` |
-| SwitchForge      | 备选   | 强调切换与工作流锻造     | `switch.mrpanda.run`  |
-| ContextPort      | 备选   | 强调上下文转运和复用     | `context.mrpanda.run` |
-| AgentSwitchboard | 描述型 | 直观表达“总控台”         | `control.mrpanda.run` |
-| ModelBridge      | 备选   | 强调模型/Agent 间桥接    | `bridge.mrpanda.run`  |
+| Name | Type | Meaning | Candidate subdomain |
+| --- | --- | --- | --- |
+| AgentDock | Primary | Dock and scheduling hub for agents | `dock.mrpanda.run` |
+| ThreadDock | Primary | Emphasizes thread session center | `threads.mrpanda.run` |
+| SwitchForge | Backup | Emphasizes switching and workflow shaping | `switch.mrpanda.run` |
+| ContextPort | Backup | Emphasizes context transfer and reuse | `context.mrpanda.run` |
+| AgentSwitchboard | Descriptive | Directly describes the control console | `control.mrpanda.run` |
+| ModelBridge | Backup | Emphasizes bridging between models/agents | `bridge.mrpanda.run` |
 
 ## Recommended Naming
 
-- 英文产品名：`AgentDock`
-- 中文名：`代理坞`
-- Slogan：`One dock for all coding agents.`
-- 推荐主入口：`dock.mrpanda.run`
+- English product name: `AgentDock`
+- Chinese name: `代理坞`
+- Slogan: `One dock for all coding agents.`
+- Recommended entry: `dock.mrpanda.run`
 
-理由：
+Reasons:
 
-1. 不局限“switch”，覆盖管理和沉淀能力
-2. 读音和语义都稳定，适合做品牌延展（Dock OS / Dock Cloud）
-3. 与 thread 中心概念自然兼容（thread docking）
+1. Not limited to "switching"; also covers management and accumulation.
+2. Stable pronunciation and semantics, suitable for brand extension (Dock OS / Dock Cloud).
+3. Naturally compatible with the thread center concept (thread docking).
 
-## Domain & URL Strategy
+## Domain and URL Strategy
 
-1. 统一主域：`mrpanda.run`
-2. 产品入口：`dock.mrpanda.run`
-3. 管理后台（可选）：`control.mrpanda.run`
-4. 文档站（可选）：`docs.mrpanda.run`
-5. API（可选）：`api.mrpanda.run`
+1. Primary domain: `mrpanda.run`
+2. Product entry: `dock.mrpanda.run`
+3. Admin console (optional): `control.mrpanda.run`
+4. Docs site (optional): `docs.mrpanda.run`
+5. API (optional): `api.mrpanda.run`
 
-说明：
+Notes:
 
-- MVP 阶段建议先只启用一个子域：`dock.mrpanda.run`。
-- 手机远程支持公网入口：`remote.mrpanda.run`（可与 App 配对和会话转发）。
-- 其他能力优先使用应用内路由（如 `/threads`, `/providers`, `/skills`），避免过早拆分。
+- In MVP stage, recommend enabling only one subdomain first: `dock.mrpanda.run`.
+- For mobile remote public entry, use: `remote.mrpanda.run` (for app pairing and session forwarding).
+- Prefer in-app routes for other capabilities (`/threads`, `/providers`, `/skills`) to avoid premature domain split.
 
 ## MVP Feature Priority
 
-1. P0：多 provider 连接、账号、配置模板、线程中心
-2. P1：MCP 管理、skills 管理、一键切换、RN 手机端只读看板
-3. P2：RN 手机端可执行操作、跨 provider thread 摘要自动生成、批量迁移工具
+1. P0: multi-provider connection, accounts, config templates, thread center
+2. P1: MCP management, skills management, one-click switch, RN mobile read-only board
+3. P2: RN mobile executable operations, auto-generated cross-provider thread summary, bulk migration tools
 
 ## Decisions Locked (2026-02-11)
 
-1. `Yes`：V1 强制本地优先，不做云备份。
-2. `Yes`：Thread 数据允许跨 provider 复用（保留权限与审计）。
-3. `Yes`：V1 先只支持 2 个 provider（`Codex` + `Claude Code`）。
-4. `Yes`：开源核心适配器层。
-5. `Yes`：V1 提供跨网络远程访问（局域网直连 + 安全 relay）。
+1. `Yes`: V1 is strictly local-first, no cloud backup.
+2. `Yes`: Thread data can be reused across providers (with permissions and audit).
+3. `Yes`: V1 supports only 2 providers first (`Codex` + `Claude Code`).
+4. `Yes`: Open-source the core adapter layer.
+5. `Yes`: V1 supports cross-network remote access (LAN direct + secure relay).

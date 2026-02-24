@@ -12,22 +12,6 @@ pub struct ThreadSummaryPayload {
     pub last_message_preview: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ThreadMessagePayload {
-    pub role: String,
-    pub content: String,
-    pub timestamp_ms: Option<i64>,
-    pub kind: String,
-    pub collapsed: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetThreadMessagesRequest {
-    pub thread_id: String,
-    pub provider_id: String,
-}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,21 +55,7 @@ pub struct OpenCodeThreadRuntimeStatePayload {
     pub last_event_at_ms: Option<i64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SendClaudeMessageRequest {
-    pub thread_id: String,
-    pub content: String,
-    pub project_path: Option<String>,
-}
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SendClaudeMessageResponse {
-    pub thread_id: String,
-    pub response_text: String,
-    pub raw_output: String,
-}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

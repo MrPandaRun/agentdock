@@ -32,7 +32,7 @@
   - Rust: `crates/provider-contract/src/lib.rs`
 - If you add/remove/rename provider fields or error codes, update both sides in the same change.
 - `ProviderId` values must remain `codex`, `claude_code`, and `opencode` unless product scope changes explicitly.
-- Adapter crates (`provider-codex`, `provider-claude`) should return standardized `NotImplemented` until real implementations are added.
+- Adapter crates (`provider-codex`, `provider-claude`, `provider-opencode`) are real integrations. For unsupported branches, return standardized provider errors without breaking shared contracts.
 - SQLite migration policy is **append-only**:
   - Never rewrite an already-applied migration.
   - Add a new migration file and wire it through migration execution.

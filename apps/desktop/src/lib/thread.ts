@@ -1,4 +1,4 @@
-import type { AgentThreadMessage, AgentThreadSummary } from "@/types";
+import type { AgentThreadSummary } from "@/types";
 
 export function formatLastActive(raw: string): string {
   const value = toTimestampMs(raw);
@@ -48,11 +48,16 @@ export function folderNameFromProjectPath(path: string): string {
 export function threadPreview(
   thread: Pick<AgentThreadSummary, "title" | "lastMessagePreview">,
 ): string {
+  const title = thread.title.trim();
+  if (title) {
+    return title;
+  }
+
   const preview = thread.lastMessagePreview?.trim();
   if (preview) {
     return preview;
   }
-  return thread.title;
+  return "Untitled thread";
 }
 
 export function resolveSelectedThreadId(
@@ -99,14 +104,4 @@ export function pickCreatedThread(
       (a, b) => sortableTimestamp(b.lastActiveAt) - sortableTimestamp(a.lastActiveAt),
     )[0] ?? null
   );
-}
-
-export function makeLocalMessage(role: string, content: string): AgentThreadMessage {
-  return {
-    role,
-    content,
-    timestampMs: Date.now(),
-    kind: "text",
-    collapsed: false,
-  };
 }

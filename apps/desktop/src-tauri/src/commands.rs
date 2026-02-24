@@ -3,11 +3,11 @@ use provider_contract::ProviderId;
 use crate::payloads::{
     ClaudeThreadRuntimeStatePayload, CloseEmbeddedTerminalRequest, CodexThreadRuntimeStatePayload,
     GetClaudeThreadRuntimeStateRequest, GetCodexThreadRuntimeStateRequest,
-    GetOpenCodeThreadRuntimeStateRequest, GetThreadMessagesRequest,
+    GetOpenCodeThreadRuntimeStateRequest,
     OpenCodeThreadRuntimeStatePayload, OpenNewThreadInTerminalRequest, OpenThreadInTerminalRequest,
-    OpenThreadInTerminalResponse, ResizeEmbeddedTerminalRequest, SendClaudeMessageRequest,
-    SendClaudeMessageResponse, StartEmbeddedTerminalRequest, StartEmbeddedTerminalResponse,
-    StartNewEmbeddedTerminalRequest, ThreadMessagePayload, ThreadSummaryPayload,
+    OpenThreadInTerminalResponse, ResizeEmbeddedTerminalRequest,
+    StartEmbeddedTerminalRequest, StartEmbeddedTerminalResponse,
+    StartNewEmbeddedTerminalRequest, ThreadSummaryPayload,
     WriteEmbeddedTerminalInputRequest,
 };
 use crate::provider_id::parse_provider_id;
@@ -22,17 +22,6 @@ pub async fn list_threads(
         .map_err(|error| format!("Failed to scan thread list: {error}"))?
 }
 
-#[tauri::command]
-pub async fn get_thread_messages(
-    request: GetThreadMessagesRequest,
-) -> Result<Vec<ThreadMessagePayload>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let provider_id = parse_provider_for_message_load(&request.provider_id)?;
-        threads::get_thread_messages(provider_id, &request.thread_id)
-    })
-    .await
-    .map_err(|error| format!("Failed to load thread messages: {error}"))?
-}
 
 #[tauri::command]
 pub async fn get_codex_thread_runtime_state(
@@ -67,20 +56,6 @@ pub async fn get_opencode_thread_runtime_state(
     .map_err(|error| format!("Failed to load OpenCode runtime state: {error}"))?
 }
 
-#[tauri::command]
-pub async fn send_claude_message(
-    request: SendClaudeMessageRequest,
-) -> Result<SendClaudeMessageResponse, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        threads::send_claude_message(
-            &request.thread_id,
-            &request.content,
-            request.project_path.as_deref(),
-        )
-    })
-    .await
-    .map_err(|error| format!("Failed to send Claude message: {error}"))?
-}
 
 #[tauri::command]
 pub async fn open_thread_in_terminal(
@@ -182,9 +157,6 @@ pub async fn close_embedded_terminal(request: CloseEmbeddedTerminalRequest) -> R
     .map_err(|error| format!("Failed to close embedded terminal: {error}"))?
 }
 
-fn parse_provider_for_message_load(raw: &str) -> Result<ProviderId, String> {
-    parse_provider_id(raw).map_err(|_| format!("Unsupported provider for message load: {raw}"))
-}
 
 fn parse_provider_for_terminal_launch(raw: &str) -> Result<ProviderId, String> {
     parse_provider_id(raw).map_err(|_| format!("Unsupported provider for terminal launch: {raw}"))
