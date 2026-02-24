@@ -11,12 +11,19 @@
 This document is the current execution baseline for Phase 1 delivery.
 
 Phase 1 in code currently targets:
-- Provider scope: `codex`, `claude_code`, `opencode`
+- Agent scope (Provider IDs): `codex`, `claude_code`, `opencode`
 - Desktop-first local runtime (Tauri host + React UI)
 - Terminal-only thread continuation flow
 - Unified thread retrieval and resume command generation via provider adapters
 
-AgentDock does not replace provider-native CLIs. Provider-native session stores remain the source of truth.
+AgentDock does not replace agent-native CLIs. Agent-native thread stores remain the source of truth.
+
+### 1.1 Canonical Terminology (UI/Product)
+
+- Project: folder-level grouping in the left sidebar.
+- Thread: one interaction unit shown in UI.
+- Agent: primary execution carrier (`codex` / `claude_code` / `opencode`).
+- Model Provider: model vendor used by an agent run (for example OpenAI, Anthropic, OpenRouter).
 
 ---
 
@@ -24,10 +31,10 @@ AgentDock does not replace provider-native CLIs. Provider-native session stores 
 
 ### 2.1 In Scope (Current)
 
-- Provider health checks and thread retrieval for all three providers.
+- Agent health checks and thread retrieval for all three agents.
 - Unified thread listing in desktop app, grouped by project folder.
 - Resume command path through shared provider adapter contracts.
-- Runtime-state querying per provider for terminal-session lifecycle handling.
+- Runtime-state querying per agent for terminal lifecycle handling.
 - Local SQLite initialization and append-only migration policy.
 
 ### 2.2 Out of Scope (Current)
@@ -35,7 +42,7 @@ AgentDock does not replace provider-native CLIs. Provider-native session stores 
 - Full mobile remote-control loop.
 - Team collaboration and cloud sync.
 - Billing and policy engine.
-- Productized cross-provider context-summary orchestration API.
+- Productized cross-agent context-summary orchestration API.
 
 ---
 
@@ -53,7 +60,7 @@ AgentDock does not replace provider-native CLIs. Provider-native session stores 
 - Sidebar item text prefers `title`; fallback is `lastMessagePreview`.
 - Header uses selected thread `title`.
 
-### 3.3 Thread Title Source Priority (By Provider)
+### 3.3 Thread Title Source Priority (By Agent)
 
 - Codex: official title map from `~/.codex/.codex-global-state.json`, then fallback.
 - Claude: official display title signal in `~/.claude/history.jsonl`, then fallback.
@@ -92,12 +99,12 @@ Current contract files:
 
 ## FR-01 Provider Adapter Execution
 
-- Adapters must read provider-native session/thread metadata.
+- Adapters must read provider-native thread metadata.
 - Adapters must generate resume command guidance for terminal continuation.
 - Adapter errors must map to shared error codes.
 
 Acceptance:
-- Thread listing succeeds for all three providers when local data exists.
+- Thread listing succeeds for all three agents when local data exists.
 - Resume command payload is generated for selected thread.
 
 ## FR-02 Thread Aggregation in Desktop Host
@@ -110,7 +117,7 @@ Acceptance:
 
 ## FR-03 Runtime State Query
 
-- Tauri host must expose runtime-state query commands per provider.
+- Tauri host must expose runtime-state query commands per agent.
 
 Acceptance:
 - `get_claude_thread_runtime_state`, `get_codex_thread_runtime_state`, `get_opencode_thread_runtime_state` are available and callable.
@@ -139,7 +146,7 @@ Acceptance:
 ### 6.1 Reliability
 
 - Critical flows return typed/structured errors across adapter boundaries.
-- Listing failure from one provider must be surfaced clearly.
+- Listing failure from one agent adapter must be surfaced clearly.
 
 ### 6.2 Security
 
@@ -189,5 +196,5 @@ Phase 1 execution baseline is complete when:
 
 - Three-provider thread listing and resume flow is stable in desktop app.
 - Terminal-only execution model is documented and consistent with code.
-- Shared contracts and docs align on provider IDs and current method surface.
+- Shared contracts and docs align on Agent IDs (Provider IDs) and current method surface.
 - Migration and startup behavior remain stable and repeatable.

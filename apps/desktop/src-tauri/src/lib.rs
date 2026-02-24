@@ -13,6 +13,7 @@ pub fn run() {
     path_env::hydrate_path_from_login_shell();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::list_threads,

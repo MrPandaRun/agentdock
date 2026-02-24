@@ -4,24 +4,31 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-AgentDock 帮助你在同一个桌面工作台中查看并恢复 provider 原生线程，不替代上游 CLI。
+AgentDock 帮助你在同一个桌面工作台中查看并恢复 Agent 原生线程，不替代上游 CLI。
 
 ## Why AgentDock
 
-- 把多 provider 编码工作流收敛到一个入口，减少在不同 CLI 历史之间来回切换。
-- 以 provider 原生会话数据为事实来源，同时维护本地统一索引。
+- 把多 Agent 编码工作流收敛到一个入口，减少在不同 CLI 历史之间来回切换。
+- 以 Agent 原生线程数据为事实来源，同时维护本地统一索引。
 - 保持 TS/Rust 契约语义对齐，确保桌面端、移动端和适配器行为一致。
 - 默认本地优先：运行时、SQLite 状态和 CLI 集成都在本机。
+
+## 术语统一（Canonical）
+
+- Project / 项目：左侧栏按文件夹维度的一级分组。
+- Thread / 线程：UI 中展示的一次交互单元。
+- Agent / 代理：主要执行载体（`codex` / `claude_code` / `opencode`）。
+- Model Provider / 模型提供者：Agent 运行时使用的模型服务方（如 OpenAI、Anthropic、OpenRouter）。
 
 ## Feature Snapshot
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| Provider 范围（`codex`、`claude_code`、`opencode`） | Now | TS 与 Rust 契约已对齐。 |
+| Agent 范围（`codex`、`claude_code`、`opencode`） | Now | TS 与 Rust 契约已对齐（在契约中表现为 Provider ID）。 |
 | 本地优先桌面运行时（Tauri + React） | Now | Rust host + React/Vite UI。 |
 | 统一线程列表 + 恢复 | Now | 三个适配器已接入线程扫描和恢复命令路径。 |
 | 桌面执行模式 | Now | terminal-only（内嵌 PTY + 外部终端启动）。 |
-| 跨 provider 摘要编排 | Planned | 当前 `ProviderAdapter` 契约未包含此接口。 |
+| 跨 Agent 摘要编排 | Planned | 当前 `ProviderAdapter` 契约未包含此接口。 |
 | 移动端远程控制流程 | Planned | Expo 壳层已存在，完整闭环尚未完成。 |
 
 ## 当前桌面行为
@@ -30,7 +37,7 @@ AgentDock 帮助你在同一个桌面工作台中查看并恢复 provider 原生
 - 线程数据包含 `title` 和可选的 `lastMessagePreview`。
 - 左侧条目文本优先使用 `title`；为空时回退到 `lastMessagePreview`。
 - Header 标题使用当前选中线程的 `title`。
-- 适配器标题策略优先 provider 官方标题，其次回退到用户输入。
+- 适配器标题策略优先 Agent 官方标题，其次回退到用户输入。
 
 ## Quick Start
 
@@ -53,7 +60,7 @@ bun run dev
 - Bun `1.1.27+`
 - Rust stable toolchain（见 `rust-toolchain.toml`）
 - Tauri v2 与 Expo 所需平台依赖
-- 以下 provider CLI 在 `PATH` 可用：
+- 以下 Agent CLI 在 `PATH` 可用：
   - `codex`
   - `claude`（对应 `claude_code`）
   - `opencode`
