@@ -4,24 +4,31 @@ Local-first control plane for coding agents across `codex`, `claude_code`, and `
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-AgentDock helps you inspect and resume provider-native threads from one desktop workspace without replacing upstream CLIs.
+AgentDock helps you inspect and resume agent-native threads from one desktop workspace without replacing upstream CLIs.
 
 ## Why AgentDock
 
-- Keep multi-provider coding workflows in one place instead of jumping across CLI history stores.
-- Preserve provider-native session data as the source of truth while maintaining local unified indexing.
+- Keep multi-agent coding workflows in one place instead of jumping across CLI history stores.
+- Preserve agent-native thread data as the source of truth while maintaining local unified indexing.
 - Keep TS and Rust contracts aligned so desktop/mobile surfaces and adapters share consistent semantics.
 - Run local-first by default: runtime, SQLite state, and CLI integrations stay on your machine.
+
+## Terminology (Canonical)
+
+- Project: folder-level grouping in the left sidebar.
+- Thread: one interaction unit shown in UI.
+- Agent: primary execution carrier (`codex` / `claude_code` / `opencode`).
+- Model Provider: model vendor used by an agent run (for example OpenAI, Anthropic, OpenRouter).
 
 ## Feature Snapshot
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Provider scope (`codex`, `claude_code`, `opencode`) | Now | Reflected in TS and Rust contracts. |
+| Agent scope (`codex`, `claude_code`, `opencode`) | Now | Reflected in TS and Rust contracts (as Provider IDs). |
 | Local-first desktop runtime (Tauri + React) | Now | Rust host + React/Vite UI. |
 | Unified thread listing + resume | Now | Three adapters expose thread scan + resume command path. |
 | Desktop execution mode | Now | Terminal-only (embedded PTY + terminal launch). |
-| Cross-provider summary orchestration | Planned | Not part of current `ProviderAdapter` contract surface. |
+| Cross-agent summary orchestration | Planned | Not part of current `ProviderAdapter` contract surface. |
 | Mobile remote-control workflows | Planned | Expo shell exists; full remote-control loop is not complete. |
 
 ## Desktop Behavior (Current)
@@ -30,7 +37,7 @@ AgentDock helps you inspect and resume provider-native threads from one desktop 
 - Thread records include `title` and optional `lastMessagePreview`.
 - Sidebar item text prefers `title`; if empty, it falls back to `lastMessagePreview`.
 - Header title displays selected thread `title`.
-- Thread title strategy in adapters prioritizes provider-official titles, then user-input fallback.
+- Thread title strategy in adapters prioritizes agent-official titles, then user-input fallback.
 
 ## Quick Start
 
@@ -53,7 +60,7 @@ bun run dev
 - Bun `1.1.27+`
 - Rust stable toolchain (see `rust-toolchain.toml`)
 - Platform dependencies required by Tauri v2 and Expo
-- Provider CLIs in `PATH`:
+- Agent CLIs in `PATH`:
   - `codex`
   - `claude` (for `claude_code`)
   - `opencode`

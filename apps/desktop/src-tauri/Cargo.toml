@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
 agentdock-core = { path = "../../../crates/agentdock-core" }
 provider-contract = { path = "../../../crates/provider-contract" }
 provider-claude = { path = "../../../crates/provider-claude" }

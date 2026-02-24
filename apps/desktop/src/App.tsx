@@ -53,6 +53,7 @@ function App() {
     folderGroups,
     selectedFolderKey,
     loadingThreads,
+    error,
     creatingThreadFolderKey,
     newThreadLaunch,
     newThreadBindingStatus,
@@ -120,11 +121,15 @@ function App() {
           selectedThreadId={newThreadLaunch ? null : selectedThreadId}
           loadingThreads={loadingThreads}
           creatingThreadFolderKey={creatingThreadFolderKey}
+          error={error}
+          newThreadBindingStatus={newThreadBindingStatus}
+          hasPendingNewThreadLaunch={newThreadLaunch !== null}
           appTheme={appTheme}
           onLoadThreads={loadThreads}
           onSelectThread={handleSelectThread}
           onCreateThread={handleCreateThreadInFolder}
           onAppThemeChange={setAppTheme}
+          onClearError={() => setError(null)}
         />
 
         {!sidebarCollapsed ? (

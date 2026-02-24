@@ -7,21 +7,28 @@
 
 AgentDock is a local-first multi-agent control console for CLI-based coding workflows.
 
-Supported providers:
+Supported agents:
 - `codex`
 - `claude_code`
 - `opencode`
 
 Core boundary:
-- AgentDock does not replace provider-native session engines.
-- Session execution and continuation still happen through provider CLIs.
+- AgentDock does not replace agent-native thread engines.
+- Thread execution and continuation still happen through agent CLIs.
+
+## 1.1 Canonical Terminology (UI/Product)
+
+- Project: folder-level grouping in the left sidebar.
+- Thread: one interaction unit shown in UI.
+- Agent: primary execution carrier (`codex` / `claude_code` / `opencode`).
+- Model Provider: model vendor used by an agent run (for example OpenAI, Anthropic, OpenRouter).
 
 ## 2. Current User Value
 
-- Unified historical thread visibility from three providers.
+- Unified historical thread visibility from three agents.
 - Folder-grouped navigation and quick thread switching in desktop UI.
 - Embedded terminal continuation for selected threads.
-- New-thread launch entry per folder/provider from sidebar UI.
+- New thread launch entry via global/folder create flow with Agent selection.
 
 ## 3. Capability Inventory
 
@@ -69,7 +76,7 @@ Thread text behavior:
 - Header title uses selected thread `title`.
 
 Consistency intent:
-- Provider adapters should produce stable, provider-official `title` whenever available.
+- Agent adapters should produce stable, agent-official `title` whenever available.
 - Sidebar/header should converge on the same canonical title for normal threads.
 
 ### 3.4 Tauri Host Command Surface
@@ -103,19 +110,22 @@ Current baseline tables include:
 - `remote_devices`
 - `remote_sessions`
 
+Note:
+- `accounts` remains an internal table name; user-facing terminology should use `Agent` / `Model Provider`.
+
 ## 5. Stage Assessment
 
 ### Completed
 
-- Three-provider contract alignment (TS/Rust)
-- Three-provider thread scanning + resume command path
+- Three-agent contract alignment (TS/Rust)
+- Three-agent thread scanning + resume command path
 - Desktop terminal-first continuation flow
 - Local DB initialization + migration baseline
 
 ### In Progress
 
 - Desktop interaction refinement (window drag/layout details)
-- Productized cross-provider switch orchestration strategy
+- Productized cross-agent switch orchestration strategy
 
 ### Not Complete Yet
 
@@ -126,5 +136,5 @@ Current baseline tables include:
 ## 6. Key Constraints
 
 - Desktop execution flow is terminal-only.
-- No current shared API for summary-based cross-provider switch orchestration.
+- No current shared API for summary-based cross-agent switch orchestration.
 - No in-app message composer/list send flow in current desktop build.
