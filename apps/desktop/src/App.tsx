@@ -1,12 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-import {
-  EmbeddedTerminal,
-} from "@/components/terminal/EmbeddedTerminal";
+import { EmbeddedTerminal } from "@/components/terminal/EmbeddedTerminal";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { ThreadHeader } from "@/components/header/ThreadHeader";
-import { MessageList } from "@/components/messages/MessageList";
-import { MessageComposer } from "@/components/composer/MessageComposer";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -30,14 +26,17 @@ function readSystemTheme(): TerminalTheme {
   if (typeof window === "undefined") {
     return "light";
   }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }
 
 function App() {
-  const [showToolEvents, setShowToolEvents] = useState(false);
   const [appTheme, setAppTheme] = useState<AppTheme>(readStoredAppTheme);
-  const [systemTheme, setSystemTheme] = useState<TerminalTheme>(readSystemTheme);
-  const resolvedTheme: TerminalTheme = appTheme === "system" ? systemTheme : appTheme;
+  const [systemTheme, setSystemTheme] =
+    useState<TerminalTheme>(readSystemTheme);
+  const resolvedTheme: TerminalTheme =
+    appTheme === "system" ? systemTheme : appTheme;
 
   const {
     sidebarCollapsed,
@@ -51,42 +50,21 @@ function App() {
   const {
     selectedThreadId,
     selectedThread,
-    messages,
     folderGroups,
     selectedFolderKey,
     loadingThreads,
-    loadingMessages,
-    sending,
-    error,
-    rightPaneMode,
     creatingThreadFolderKey,
     newThreadLaunch,
     newThreadBindingStatus,
-    setRightPaneMode,
     setError,
     loadThreads,
     handleSelectThread,
     handleCreateThreadInFolder,
     handleNewThreadLaunchSettled,
     handleEmbeddedTerminalSessionExit,
-    handleSendMessage,
   } = useThreads();
 
   const { dragRegionRef, windowDragStripHeight } = useWindowDrag();
-
-  const canUseUiComposer = selectedThread?.providerId === "claude_code";
-
-  const displayedMessages = useMemo(() => {
-    if (showToolEvents) {
-      return messages;
-    }
-    return messages.filter((message) => message.kind !== "tool");
-  }, [messages, showToolEvents]);
-
-  const toolCount = useMemo(
-    () => messages.filter((message) => message.kind === "tool").length,
-    [messages],
-  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -120,40 +98,6 @@ function App() {
     root.classList.toggle("dark", resolvedTheme === "dark");
     root.style.colorScheme = resolvedTheme;
   }, [resolvedTheme]);
-
-  useEffect(() => {
-    const handleModeToggleShortcut = (event: KeyboardEvent) => {
-      const hasMod = event.metaKey || event.ctrlKey;
-      if (!(hasMod && event.shiftKey && event.key.toLowerCase() === "m")) {
-        return;
-      }
-
-      const target = event.target as HTMLElement | null;
-      if (target) {
-        const tagName = target.tagName.toLowerCase();
-        const isEditable =
-          target.isContentEditable ||
-          tagName === "input" ||
-          tagName === "textarea" ||
-          tagName === "select";
-        const isTerminalHelperTextarea =
-          tagName === "textarea" &&
-          target.classList.contains("xterm-helper-textarea");
-
-        if (isEditable && !isTerminalHelperTextarea) {
-          return;
-        }
-      }
-
-      event.preventDefault();
-      setRightPaneMode(rightPaneMode === "terminal" ? "ui" : "terminal");
-    };
-
-    window.addEventListener("keydown", handleModeToggleShortcut);
-    return () => {
-      window.removeEventListener("keydown", handleModeToggleShortcut);
-    };
-  }, [rightPaneMode, setRightPaneMode]);
 
   return (
     <main className="relative h-full min-h-0 overflow-hidden bg-background">
@@ -196,7 +140,9 @@ function App() {
             <span
               className={cn(
                 "h-14 w-[2px] rounded-full bg-border transition-colors",
-                isResizingSidebar ? "bg-primary/55" : "group-hover:bg-primary/45",
+                isResizingSidebar
+                  ? "bg-primary/55"
+                  : "group-hover:bg-primary/45",
               )}
             />
           </div>
@@ -210,71 +156,39 @@ function App() {
         >
           <ThreadHeader
             sidebarCollapsed={sidebarCollapsed}
-            rightPaneMode={rightPaneMode}
             selectedThread={selectedThread}
             newThreadLaunch={newThreadLaunch}
             newThreadBindingStatus={newThreadBindingStatus}
-            loadingMessages={loadingMessages}
-            showToolEvents={showToolEvents}
-            toolCount={toolCount}
-            displayedMessagesCount={displayedMessages.length}
-            messagesCount={messages.length}
             onToggleSidebar={toggleSidebar}
-            onSetRightPaneMode={setRightPaneMode}
-            onToggleShowToolEvents={setShowToolEvents}
           />
           <Separator />
 
-          <CardContent
-            className={cn(
-              "min-h-0 flex-1",
-              "p-0",
-            )}
-          >
-            {rightPaneMode === "terminal" ? (
-              <div className="h-full w-full">
-                <EmbeddedTerminal
-                  thread={
-                    newThreadLaunch
+          <CardContent className={cn("min-h-0 flex-1", "p-0")}>
+            <div className="h-full w-full">
+              <EmbeddedTerminal
+                thread={
+                  newThreadLaunch
+                    ? {
+                        id: `__new__:${newThreadLaunch.launchId}`,
+                        providerId: newThreadLaunch.providerId,
+                        projectPath: newThreadLaunch.projectPath,
+                      }
+                    : selectedThread
                       ? {
-                          id: `__new__:${newThreadLaunch.launchId}`,
-                          providerId: newThreadLaunch.providerId,
-                          projectPath: newThreadLaunch.projectPath,
+                          id: selectedThread.id,
+                          providerId: selectedThread.providerId,
+                          projectPath: selectedThread.projectPath,
                         }
-                      : selectedThread
-                        ? {
-                            id: selectedThread.id,
-                            providerId: selectedThread.providerId,
-                            projectPath: selectedThread.projectPath,
-                          }
-                        : null
-                  }
-                  launchRequest={newThreadLaunch}
-                  terminalTheme={resolvedTheme}
-                  onLaunchRequestSettled={handleNewThreadLaunchSettled}
-                  onActiveSessionExit={handleEmbeddedTerminalSessionExit}
-                  onError={setError}
-                />
-              </div>
-            ) : (
-              <MessageList
-                selectedThread={selectedThread}
-                canUseUiComposer={canUseUiComposer}
-                loadingMessages={loadingMessages}
-                messages={displayedMessages}
-                error={error}
+                      : null
+                }
+                launchRequest={newThreadLaunch}
+                terminalTheme={resolvedTheme}
+                onLaunchRequestSettled={handleNewThreadLaunchSettled}
+                onActiveSessionExit={handleEmbeddedTerminalSessionExit}
+                onError={setError}
               />
-            )}
+            </div>
           </CardContent>
-
-          {rightPaneMode === "ui" ? (
-            <MessageComposer
-              selectedThread={selectedThread}
-              canUseUiComposer={canUseUiComposer}
-              sending={sending}
-              onSendMessage={handleSendMessage}
-            />
-          ) : null}
         </Card>
       </section>
     </main>

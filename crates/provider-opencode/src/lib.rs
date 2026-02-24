@@ -1,7 +1,7 @@
 use provider_contract::{
     ProviderAdapter, ProviderError, ProviderErrorCode, ProviderHealthCheckRequest,
     ProviderHealthCheckResult, ProviderHealthStatus, ProviderId, ProviderResult,
-    ResumeThreadRequest, ResumeThreadResult, SwitchContextSummary, ThreadSummary,
+    ResumeThreadRequest, ResumeThreadResult, ThreadSummary,
 };
 use serde_json::Value;
 use std::cmp::Reverse;
@@ -13,8 +13,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const OPENCODE_DATA_DIR_ENV: &str = "AGENTDOCK_OPENCODE_DATA_DIR";
 const OPENCODE_BINARY_ENV: &str = "AGENTDOCK_OPENCODE_BIN";
-const MESSAGE_KIND_TEXT: &str = "text";
-const MESSAGE_KIND_TOOL: &str = "tool";
 const OPENCODE_AGENT_ACTIVITY_WINDOW_MS: i64 = 120_000;
 
 #[derive(Debug, Clone)]
@@ -22,35 +20,6 @@ struct ThreadRecord {
     summary: ThreadSummary,
     session_id: String,
     sort_key: i64,
-}
-
-#[derive(Debug, Clone)]
-struct MessageRecord {
-    role: String,
-    content: String,
-    timestamp_ms: Option<i64>,
-    kind: String,
-    collapsed: bool,
-}
-
-#[derive(Debug, Clone)]
-struct OpenCodeMessageNode {
-    id: String,
-    role: String,
-    created_ms: Option<i64>,
-    completed_ms: Option<i64>,
-    timestamp_ms: Option<i64>,
-    sort_key: i64,
-    summary_title: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenCodeThreadMessage {
-    pub role: String,
-    pub content: String,
-    pub timestamp_ms: Option<i64>,
-    pub kind: String,
-    pub collapsed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +56,17 @@ impl OpenCodeSemanticEventKind {
     }
 }
 
+#[derive(Debug, Clone)]
+struct OpenCodeMessageNode {
+    id: String,
+    role: String,
+    created_ms: Option<i64>,
+    completed_ms: Option<i64>,
+    timestamp_ms: Option<i64>,
+    sort_key: i64,
+    summary_title: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct OpenCodeAdapter {
     data_dir_override: Option<PathBuf>,
@@ -106,24 +86,6 @@ impl OpenCodeAdapter {
     pub fn with_cli_binary<S: Into<String>>(mut self, cli_binary: S) -> Self {
         self.cli_binary_override = Some(cli_binary.into());
         self
-    }
-
-    pub fn get_thread_messages(
-        &self,
-        thread_id: &str,
-    ) -> ProviderResult<Vec<OpenCodeThreadMessage>> {
-        self.find_thread_record(thread_id)?;
-        let messages = load_thread_messages(&self.opencode_storage_dir(), thread_id);
-        Ok(messages
-            .into_iter()
-            .map(|message| OpenCodeThreadMessage {
-                role: message.role,
-                content: message.content,
-                timestamp_ms: message.timestamp_ms,
-                kind: message.kind,
-                collapsed: message.collapsed,
-            })
-            .collect())
     }
 
     pub fn get_thread_runtime_state(
@@ -206,10 +168,11 @@ impl OpenCodeAdapter {
         let mut files = Vec::new();
         collect_json_files_recursive(&self.opencode_sessions_dir(), &mut files);
 
+        let storage_dir = self.opencode_storage_dir();
         let project_map = load_project_worktree_map(&self.opencode_projects_dir());
         let mut records = Vec::new();
         for path in files {
-            if let Some(record) = parse_session_file(&path, &project_map) {
+            if let Some(record) = parse_session_file(&path, &project_map, &storage_dir) {
                 records.push(record);
             }
         }
@@ -345,44 +308,6 @@ impl ProviderAdapter for OpenCodeAdapter {
             )),
         })
     }
-
-    fn summarize_switch_context(&self, thread_id: &str) -> ProviderResult<SwitchContextSummary> {
-        let thread_record = self.find_thread_record(thread_id)?;
-        let messages = self.get_thread_messages(thread_id)?;
-
-        let first_user_message = messages.iter().find(|msg| msg.role == "user");
-        let latest_user_message = messages.iter().rev().find(|msg| msg.role == "user");
-
-        let objective = first_user_message
-            .map(|msg| truncate_text(&msg.content, 180))
-            .filter(|text| !text.is_empty())
-            .unwrap_or_else(|| format!("Continue OpenCode thread {thread_id}"));
-
-        let mut constraints =
-            vec!["Preserve existing project constraints and coding style.".to_string()];
-        if thread_record.summary.project_path != "." {
-            constraints.push(format!(
-                "Use project directory: {}",
-                thread_record.summary.project_path
-            ));
-        }
-
-        let pending_tasks = latest_user_message
-            .map(|msg| {
-                format!(
-                    "Continue from latest request: {}",
-                    truncate_text(&msg.content, 140)
-                )
-            })
-            .map(|line| vec![line])
-            .unwrap_or_else(|| vec![format!("Resume OpenCode thread {thread_id}")]);
-
-        Ok(SwitchContextSummary {
-            objective,
-            constraints,
-            pending_tasks,
-        })
-    }
 }
 
 fn load_project_worktree_map(projects_dir: &Path) -> HashMap<String, String> {
@@ -447,7 +372,11 @@ fn collect_json_files_recursive(root: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
-fn parse_session_file(path: &Path, project_map: &HashMap<String, String>) -> Option<ThreadRecord> {
+fn parse_session_file(
+    path: &Path,
+    project_map: &HashMap<String, String>,
+    storage_dir: &Path,
+) -> Option<ThreadRecord> {
     let raw = fs::read_to_string(path).ok()?;
     let parsed: Value = serde_json::from_str(&raw).ok()?;
 
@@ -486,9 +415,9 @@ fn parse_session_file(path: &Path, project_map: &HashMap<String, String>) -> Opt
     let title = parsed
         .get("title")
         .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
+        .and_then(non_empty_trimmed)
         .map(ToString::to_string)
+        .or_else(|| build_first_user_thread_title(storage_dir, &session_id))
         .or_else(|| path_basename(&project_path).map(ToString::to_string))
         .unwrap_or_else(|| format!("OpenCode session {}", truncate_text(&session_id, 8)));
 
@@ -517,41 +446,6 @@ fn parse_session_file(path: &Path, project_map: &HashMap<String, String>) -> Opt
         session_id,
         sort_key,
     })
-}
-
-fn load_thread_messages(storage_dir: &Path, session_id: &str) -> Vec<MessageRecord> {
-    let message_dir = storage_dir.join("message").join(session_id);
-    if !message_dir.exists() {
-        return Vec::new();
-    }
-
-    let mut message_files = Vec::new();
-    collect_json_files_recursive(&message_dir, &mut message_files);
-
-    let mut nodes = message_files
-        .into_iter()
-        .filter_map(|path| parse_message_file(&path))
-        .collect::<Vec<OpenCodeMessageNode>>();
-    nodes.sort_by_key(|node| node.sort_key);
-
-    let mut records = Vec::new();
-    for node in nodes {
-        let mut parts = load_part_records(storage_dir, &node.id, &node.role, node.timestamp_ms);
-        if parts.is_empty() {
-            if node.role == "user" {
-                if let Some(summary_title) = node
-                    .summary_title
-                    .as_ref()
-                    .and_then(|text| normalize_text(text))
-                {
-                    parts.push(text_record("user", summary_title, node.timestamp_ms));
-                }
-            }
-        }
-        records.extend(parts);
-    }
-
-    records
 }
 
 fn parse_message_file(path: &Path) -> Option<OpenCodeMessageNode> {
@@ -599,209 +493,33 @@ fn parse_message_file(path: &Path) -> Option<OpenCodeMessageNode> {
     })
 }
 
-fn load_part_records(
-    storage_dir: &Path,
-    message_id: &str,
-    role: &str,
-    timestamp_ms: Option<i64>,
-) -> Vec<MessageRecord> {
-    let parts_dir = storage_dir.join("part").join(message_id);
-    if !parts_dir.exists() {
-        return Vec::new();
-    }
-
-    let entries = match fs::read_dir(parts_dir) {
-        Ok(entries) => entries,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut files = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file())
-        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
-        .collect::<Vec<PathBuf>>();
-    files.sort_by_key(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .map(ToString::to_string)
-            .unwrap_or_default()
-    });
-
-    let mut records = Vec::new();
-    for path in files {
-        let raw = match fs::read_to_string(path) {
-            Ok(raw) => raw,
-            Err(_) => continue,
-        };
-        let parsed: Value = match serde_json::from_str(&raw) {
-            Ok(parsed) => parsed,
-            Err(_) => continue,
-        };
-
-        let part_type = parsed.get("type").and_then(Value::as_str).unwrap_or("");
-        match part_type {
-            "text" => {
-                if let Some(content) = parsed
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .and_then(normalize_text)
-                {
-                    records.push(text_record(role, content, timestamp_ms));
-                }
-            }
-            "reasoning" => {
-                if let Some(content) = parsed
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .and_then(normalize_text)
-                {
-                    records.push(tool_record(
-                        role,
-                        format!("Reasoning\n{}", truncate_text(&content, 800)),
-                        timestamp_ms,
-                    ));
-                }
-            }
-            "tool" => {
-                if let Some(content) = summarize_tool_part(&parsed) {
-                    records.push(tool_record(role, content, timestamp_ms));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    records
-}
-
-fn summarize_tool_part(part: &Value) -> Option<String> {
-    let tool_name = part
-        .get("tool")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .unwrap_or("Tool");
-
-    let state = part.get("state");
-    let input = state.and_then(|value| value.get("input"));
-    let output = state.and_then(|value| value.get("output"));
-
-    let input_summary = input.and_then(summarize_tool_input);
-    let output_summary = output.and_then(summarize_tool_output);
-
-    if input_summary.is_none() && output_summary.is_none() {
-        return Some(tool_name.to_string());
-    }
-
-    let mut lines = vec![tool_name.to_string()];
-    if let Some(input_summary) = input_summary {
-        lines.push(format_io_block("IN", &input_summary));
-    }
-    if let Some(output_summary) = output_summary {
-        lines.push(format_io_block("OUT", &output_summary));
-    }
-
-    Some(lines.join("\n"))
-}
-
-fn format_io_block(label: &str, value: &str) -> String {
-    if value.contains('\n') {
-        format!("{label}\n{value}")
-    } else {
-        format!("{label} {value}")
-    }
-}
-
-fn summarize_tool_input(value: &Value) -> Option<String> {
-    match value {
-        Value::String(text) => normalize_text(text).map(|text| truncate_text(&text, 260)),
-        Value::Object(object) => {
-            if let Some(command) = object.get("command") {
-                let rendered = render_command(command);
-                if !rendered.is_empty() {
-                    return Some(truncate_text(&rendered, 260));
-                }
-            }
-
-            if let Some(pattern) = object.get("pattern").and_then(Value::as_str) {
-                return Some(format!("pattern: {}", truncate_text(pattern.trim(), 180)));
-            }
-
-            if let Some(path) = object.get("path").and_then(Value::as_str) {
-                return Some(format!("path: {}", truncate_text(path.trim(), 180)));
-            }
-
-            serde_json::to_string(value)
-                .ok()
-                .and_then(|raw| normalize_text(&raw))
-                .map(|raw| truncate_text(&raw, 260))
-        }
-        Value::Array(_) => serde_json::to_string(value)
-            .ok()
-            .and_then(|raw| normalize_text(&raw))
-            .map(|raw| truncate_text(&raw, 260)),
-        Value::Number(number) => Some(number.to_string()),
-        Value::Bool(flag) => Some(flag.to_string()),
-        _ => None,
-    }
-}
-
-fn summarize_tool_output(value: &Value) -> Option<String> {
-    let raw = match value {
-        Value::String(text) => text.to_string(),
-        _ => serde_json::to_string(value).ok()?,
-    };
-
-    let cleaned = strip_ansi_escapes(&raw);
-    let lines = cleaned
-        .lines()
-        .map(str::trim_end)
-        .filter(|line| !line.trim().is_empty())
-        .take(10)
-        .map(|line| truncate_text(line.trim(), 220))
-        .collect::<Vec<String>>();
-
-    if lines.is_empty() {
+fn build_first_user_thread_title(storage_dir: &Path, session_id: &str) -> Option<String> {
+    let message_dir = storage_dir.join("message").join(session_id);
+    if !message_dir.exists() {
         return None;
     }
 
-    Some(lines.join("\n"))
-}
+    let mut message_files = Vec::new();
+    collect_json_files_recursive(&message_dir, &mut message_files);
+    let mut nodes = message_files
+        .into_iter()
+        .filter_map(|path| parse_message_file(&path))
+        .collect::<Vec<OpenCodeMessageNode>>();
+    nodes.sort_by_key(|node| node.sort_key);
 
-fn render_command(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.to_string(),
-        Value::Array(items) => items
-            .iter()
-            .filter_map(Value::as_str)
-            .collect::<Vec<&str>>()
-            .join(" "),
-        _ => String::new(),
-    }
-}
-
-fn strip_ansi_escapes(raw: &str) -> String {
-    let mut output = String::with_capacity(raw.len());
-    let mut in_escape = false;
-
-    for ch in raw.chars() {
-        if in_escape {
-            if ch.is_ascii_alphabetic() || ch == '~' {
-                in_escape = false;
-            }
+    for node in nodes {
+        if node.role != "user" {
             continue;
         }
-
-        if ch == '\u{1b}' {
-            in_escape = true;
-            continue;
+        if let Some(text) = find_first_text_part(storage_dir, &node.id) {
+            return Some(truncate_text(&text, 72));
         }
-
-        output.push(ch);
+        if let Some(summary_title) = node.summary_title.as_deref().and_then(normalize_preview_text) {
+            return Some(truncate_text(&summary_title, 72));
+        }
     }
 
-    output
+    None
 }
 
 fn load_thread_runtime_state(storage_dir: &Path, session_id: &str) -> OpenCodeThreadRuntimeState {
@@ -934,29 +652,153 @@ fn load_part_event_kinds(
     events
 }
 
+/// Lightweight last-message preview: scans message/part files to find the last
+/// visible text content without building a full message list.
 fn build_last_message_preview(storage_dir: &Path, session_id: &str) -> Option<String> {
-    let messages = load_thread_messages(storage_dir, session_id);
-    let message = messages
-        .iter()
-        .rev()
-        .find(|record| record.kind == MESSAGE_KIND_TEXT && !record.content.trim().is_empty())
-        .or_else(|| {
-            messages
-                .iter()
-                .rev()
-                .find(|record| !record.content.trim().is_empty())
-        })?;
+    let message_dir = storage_dir.join("message").join(session_id);
+    if !message_dir.exists() {
+        return None;
+    }
 
-    let normalized = message
-        .content
+    let mut message_files = Vec::new();
+    collect_json_files_recursive(&message_dir, &mut message_files);
+    let mut nodes = message_files
+        .into_iter()
+        .filter_map(|path| parse_message_file(&path))
+        .collect::<Vec<OpenCodeMessageNode>>();
+    nodes.sort_by_key(|node| node.sort_key);
+
+    // Walk backwards through messages to find the last visible text.
+    let mut last_preview: Option<String> = None;
+    for node in &nodes {
+        // Check text parts for this message.
+        if let Some(text) = find_last_text_part(storage_dir, &node.id) {
+            last_preview = Some(text);
+        } else if node.role == "user" {
+            // Fallback to summary title for user messages.
+            if let Some(title) = node.summary_title.as_deref().and_then(normalize_preview_text) {
+                last_preview = Some(title);
+            }
+        }
+    }
+
+    last_preview.map(|text| truncate_text(&text, 140))
+}
+
+/// Find the last "text" type part for a message and return its content.
+fn find_last_text_part(storage_dir: &Path, message_id: &str) -> Option<String> {
+    let parts_dir = storage_dir.join("part").join(message_id);
+    if !parts_dir.exists() {
+        return None;
+    }
+
+    let entries = match fs::read_dir(parts_dir) {
+        Ok(entries) => entries,
+        Err(_) => return None,
+    };
+
+    let mut files = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .collect::<Vec<PathBuf>>();
+    files.sort_by_key(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    });
+
+    let mut last_text: Option<String> = None;
+    for path in files {
+        let raw = match fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(_) => continue,
+        };
+        let parsed: Value = match serde_json::from_str(&raw) {
+            Ok(parsed) => parsed,
+            Err(_) => continue,
+        };
+
+        if parsed.get("type").and_then(Value::as_str) != Some("text") {
+            continue;
+        }
+
+        if let Some(text) = parsed.get("text").and_then(Value::as_str) {
+            if let Some(normalized) = normalize_preview_text(text) {
+                last_text = Some(normalized);
+            }
+        }
+    }
+
+    last_text
+}
+
+fn find_first_text_part(storage_dir: &Path, message_id: &str) -> Option<String> {
+    let parts_dir = storage_dir.join("part").join(message_id);
+    if !parts_dir.exists() {
+        return None;
+    }
+
+    let entries = match fs::read_dir(parts_dir) {
+        Ok(entries) => entries,
+        Err(_) => return None,
+    };
+
+    let mut files = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .collect::<Vec<PathBuf>>();
+    files.sort_by_key(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    });
+
+    for path in files {
+        let raw = match fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(_) => continue,
+        };
+        let parsed: Value = match serde_json::from_str(&raw) {
+            Ok(parsed) => parsed,
+            Err(_) => continue,
+        };
+
+        if parsed.get("type").and_then(Value::as_str) != Some("text") {
+            continue;
+        }
+        if let Some(text) = parsed.get("text").and_then(Value::as_str).and_then(normalize_preview_text) {
+            return Some(text);
+        }
+    }
+
+    None
+}
+
+fn normalize_preview_text(raw: &str) -> Option<String> {
+    let normalized = raw
         .split_whitespace()
         .collect::<Vec<&str>>()
         .join(" ");
     if normalized.is_empty() {
-        return None;
+        None
+    } else {
+        Some(normalized)
     }
+}
 
-    Some(truncate_text(&normalized, 140))
+fn non_empty_trimmed(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 fn extract_timestamp_ms(value: Option<&Value>) -> Option<i64> {
@@ -974,14 +816,6 @@ fn normalize_epoch(raw: i64) -> i64 {
     } else {
         raw
     }
-}
-
-fn normalize_text(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    Some(trimmed.to_string())
 }
 
 fn provider_error(code: ProviderErrorCode, message: String, retryable: bool) -> ProviderError {
@@ -1076,26 +910,6 @@ fn shell_quote(path: &str) -> String {
     format!("'{}'", path.replace('\'', "'\"'\"'"))
 }
 
-fn text_record(role: &str, content: String, timestamp_ms: Option<i64>) -> MessageRecord {
-    MessageRecord {
-        role: role.to_string(),
-        content,
-        timestamp_ms,
-        kind: MESSAGE_KIND_TEXT.to_string(),
-        collapsed: false,
-    }
-}
-
-fn tool_record(role: &str, content: String, timestamp_ms: Option<i64>) -> MessageRecord {
-    MessageRecord {
-        role: role.to_string(),
-        content,
-        timestamp_ms,
-        kind: MESSAGE_KIND_TOOL.to_string(),
-        collapsed: true,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1159,6 +973,134 @@ mod tests {
     }
 
     #[test]
+    fn list_threads_prefers_session_title_over_user_message() {
+        let data_dir = test_temp_dir("title-from-user").join("opencode");
+        let session_id = "ses_title";
+        let project_id = "proj-title";
+
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("project")
+                .join(format!("{project_id}.json")),
+            &format!(r#"{{"id":"{project_id}","worktree":"/workspace/title"}}"#),
+        );
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("session")
+                .join(project_id)
+                .join(format!("{session_id}.json")),
+            &format!(
+                r#"{{"id":"{session_id}","projectID":"{project_id}","directory":"/workspace/title","title":"Session Title","time":{{"created":1760000000000,"updated":1760000000999}}}}"#
+            ),
+        );
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("message")
+                .join(session_id)
+                .join("msg_user_1.json"),
+            &format!(
+                r#"{{"id":"msg_user_1","sessionID":"{session_id}","role":"user","time":{{"created":1760000000001}}}}"#
+            ),
+        );
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("part")
+                .join("msg_user_1")
+                .join("prt_001.json"),
+            &format!(
+                r#"{{"id":"prt_001","sessionID":"{session_id}","messageID":"msg_user_1","type":"text","text":"  Define   unified   thread title policy  "}}"#
+            ),
+        );
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("message")
+                .join(session_id)
+                .join("msg_user_2.json"),
+            &format!(
+                r#"{{"id":"msg_user_2","sessionID":"{session_id}","role":"user","time":{{"created":1760000000002}}}}"#
+            ),
+        );
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("part")
+                .join("msg_user_2")
+                .join("prt_001.json"),
+            &format!(
+                r#"{{"id":"prt_001","sessionID":"{session_id}","messageID":"msg_user_2","type":"text","text":"Second request should not replace title"}}"#
+            ),
+        );
+
+        let adapter = OpenCodeAdapter::new().with_data_dir(&data_dir);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, session_id);
+        assert_eq!(threads[0].title, "Session Title");
+    }
+
+    #[test]
+    fn list_threads_falls_back_to_first_user_message_when_session_title_missing() {
+        let data_dir = test_temp_dir("title-fallback-user").join("opencode");
+        let session_id = "ses_title";
+        let project_id = "proj-title";
+
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("project")
+                .join(format!("{project_id}.json")),
+            &format!(r#"{{"id":"{project_id}","worktree":"/workspace/title"}}"#),
+        );
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("session")
+                .join(project_id)
+                .join(format!("{session_id}.json")),
+            &format!(
+                r#"{{"id":"{session_id}","projectID":"{project_id}","directory":"/workspace/title","title":"","time":{{"created":1760000000000,"updated":1760000000999}}}}"#
+            ),
+        );
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("message")
+                .join(session_id)
+                .join("msg_user_1.json"),
+            &format!(
+                r#"{{"id":"msg_user_1","sessionID":"{session_id}","role":"user","time":{{"created":1760000000001}}}}"#
+            ),
+        );
+        write_json(
+            &data_dir
+                .join("storage")
+                .join("part")
+                .join("msg_user_1")
+                .join("prt_001.json"),
+            &format!(
+                r#"{{"id":"prt_001","sessionID":"{session_id}","messageID":"msg_user_1","type":"text","text":"  Define   unified   thread title policy  "}}"#
+            ),
+        );
+
+        let adapter = OpenCodeAdapter::new().with_data_dir(&data_dir);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, session_id);
+        assert_eq!(threads[0].title, "Define unified thread title policy");
+    }
+
+    #[test]
     fn list_threads_ignores_child_agent_sessions() {
         let data_dir = test_temp_dir("list-threads-child-filter").join("opencode");
         let project_id = "proj-child";
@@ -1203,94 +1145,6 @@ mod tests {
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, parent_session_id);
         assert_eq!(threads[0].title, "Parent Session");
-    }
-
-    #[test]
-    fn get_thread_messages_reads_text_and_tool_parts() {
-        let data_dir = test_temp_dir("messages").join("opencode");
-        let session_id = "ses_msg";
-        write_json(
-            &data_dir
-                .join("storage")
-                .join("session")
-                .join("global")
-                .join(format!("{session_id}.json")),
-            &format!(
-                r#"{{"id":"{session_id}","projectID":"global","directory":"/workspace/b","title":"Session B","time":{{"created":1760001000000,"updated":1760001000099}}}}"#
-            ),
-        );
-
-        write_json(
-            &data_dir
-                .join("storage")
-                .join("message")
-                .join(session_id)
-                .join("msg_user.json"),
-            &format!(
-                r#"{{"id":"msg_user","sessionID":"{session_id}","role":"user","time":{{"created":1760001000001}}}}"#
-            ),
-        );
-        write_json(
-            &data_dir
-                .join("storage")
-                .join("part")
-                .join("msg_user")
-                .join("prt_001.json"),
-            &format!(
-                r#"{{"id":"prt_001","sessionID":"{session_id}","messageID":"msg_user","type":"text","text":"hello opencode"}}"#
-            ),
-        );
-
-        write_json(
-            &data_dir
-                .join("storage")
-                .join("message")
-                .join(session_id)
-                .join("msg_assistant.json"),
-            &format!(
-                r#"{{"id":"msg_assistant","sessionID":"{session_id}","role":"assistant","time":{{"created":1760001001001,"completed":1760001002001}},"finish":"stop"}}"#
-            ),
-        );
-        write_json(
-            &data_dir
-                .join("storage")
-                .join("part")
-                .join("msg_assistant")
-                .join("prt_001.json"),
-            &format!(
-                r#"{{"id":"prt_001","sessionID":"{session_id}","messageID":"msg_assistant","type":"tool","tool":"grep","state":{{"status":"completed","input":{{"pattern":"hello"}},"output":"found"}}}}"#
-            ),
-        );
-        write_json(
-            &data_dir
-                .join("storage")
-                .join("part")
-                .join("msg_assistant")
-                .join("prt_002.json"),
-            &format!(
-                r#"{{"id":"prt_002","sessionID":"{session_id}","messageID":"msg_assistant","type":"text","text":"done"}}"#
-            ),
-        );
-
-        let adapter = OpenCodeAdapter::new().with_data_dir(&data_dir);
-        let messages = adapter
-            .get_thread_messages(session_id)
-            .expect("messages should load");
-
-        assert_eq!(messages.len(), 3);
-        assert_eq!(messages[0].role, "user");
-        assert_eq!(messages[0].kind, MESSAGE_KIND_TEXT);
-        assert_eq!(messages[0].content, "hello opencode");
-
-        assert_eq!(messages[1].role, "assistant");
-        assert_eq!(messages[1].kind, MESSAGE_KIND_TOOL);
-        assert!(messages[1].content.contains("grep"));
-        assert!(messages[1].content.contains("IN"));
-        assert!(messages[1].content.contains("OUT"));
-
-        assert_eq!(messages[2].role, "assistant");
-        assert_eq!(messages[2].kind, MESSAGE_KIND_TEXT);
-        assert_eq!(messages[2].content, "done");
     }
 
     #[test]

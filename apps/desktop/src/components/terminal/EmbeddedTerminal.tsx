@@ -5,7 +5,6 @@ import "@xterm/xterm/css/xterm.css";
 
 import {
   AGENT_MODE_SWITCH_SHORTCUT_LABEL,
-  MODE_TOGGLE_SHORTCUT_LABEL,
 } from "@/components/terminal/helpDocs";
 import { TerminalHelpPopover } from "@/components/terminal/TerminalHelpPopover";
 import { TerminalToolbar } from "@/components/terminal/TerminalToolbar";
@@ -175,8 +174,7 @@ export function EmbeddedTerminal({
         style={{ color: activeTheme.hintText }}
       >
         Shift+Enter newline · {AGENT_MODE_SWITCH_SHORTCUT_LABEL} mode/model switch
-        (provider-supported) · {MODE_TOGGLE_SHORTCUT_LABEL} toggle pane mode · ⌘/Ctrl+C
-        copy · ⌘/Ctrl+V paste
+        (provider-supported) · ⌘/Ctrl+C copy · ⌘/Ctrl+V paste
       </div>
     </div>
   );

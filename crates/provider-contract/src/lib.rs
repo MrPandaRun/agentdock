@@ -86,18 +86,11 @@ pub struct ThreadSummary {
     pub last_active_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SwitchContextSummary {
-    pub objective: String,
-    pub constraints: Vec<String>,
-    pub pending_tasks: Vec<String>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResumeThreadRequest {
     pub thread_id: String,
     pub project_path: Option<String>,
-    pub context_summary: Option<SwitchContextSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -115,5 +108,5 @@ pub trait ProviderAdapter: Send + Sync {
     ) -> ProviderResult<ProviderHealthCheckResult>;
     fn list_threads(&self, project_path: Option<&str>) -> ProviderResult<Vec<ThreadSummary>>;
     fn resume_thread(&self, request: ResumeThreadRequest) -> ProviderResult<ResumeThreadResult>;
-    fn summarize_switch_context(&self, thread_id: &str) -> ProviderResult<SwitchContextSummary>;
+
 }

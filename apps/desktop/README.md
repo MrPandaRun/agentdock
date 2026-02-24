@@ -2,6 +2,8 @@
 
 Desktop runtime for AgentDock, built with Tauri (Rust host) + React/Vite (UI).
 
+Current desktop execution model is terminal-only (embedded PTY + terminal launch).
+
 For product overview, provider scope, and contribution guidelines:
 
 - Root README (EN): [`../../README.md`](../../README.md)

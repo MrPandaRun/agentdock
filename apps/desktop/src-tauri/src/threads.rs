@@ -1,19 +1,10 @@
-use provider_claude::{
-    ClaudeAdapter, ClaudeSendMessageResult, ClaudeThreadMessage, ClaudeThreadOverview,
-    ClaudeThreadRuntimeState,
-};
-use provider_codex::{
-    CodexAdapter, CodexThreadMessage, CodexThreadOverview, CodexThreadRuntimeState,
-};
-use provider_contract::ProviderId;
-use provider_opencode::{
-    OpenCodeAdapter, OpenCodeThreadMessage, OpenCodeThreadOverview, OpenCodeThreadRuntimeState,
-};
+use provider_claude::{ClaudeAdapter, ClaudeThreadOverview, ClaudeThreadRuntimeState};
+use provider_codex::{CodexAdapter, CodexThreadOverview, CodexThreadRuntimeState};
+use provider_opencode::{OpenCodeAdapter, OpenCodeThreadOverview, OpenCodeThreadRuntimeState};
 
 use crate::payloads::{
     ClaudeThreadRuntimeStatePayload, CodexThreadRuntimeStatePayload,
-    OpenCodeThreadRuntimeStatePayload, SendClaudeMessageResponse, ThreadMessagePayload,
-    ThreadSummaryPayload,
+    OpenCodeThreadRuntimeStatePayload, ThreadSummaryPayload,
 };
 
 pub fn list_threads(project_path: Option<&str>) -> Result<Vec<ThreadSummaryPayload>, String> {
@@ -55,56 +46,6 @@ pub fn list_threads(project_path: Option<&str>) -> Result<Vec<ThreadSummaryPaylo
         .sort_by_key(|thread| std::cmp::Reverse(sortable_last_active_at(&thread.last_active_at)));
 
     Ok(threads)
-}
-
-pub fn get_thread_messages(
-    provider_id: ProviderId,
-    thread_id: &str,
-) -> Result<Vec<ThreadMessagePayload>, String> {
-    match provider_id {
-        ProviderId::ClaudeCode => {
-            let messages = ClaudeAdapter::new()
-                .get_thread_messages(thread_id)
-                .map_err(|error| {
-                    format!(
-                        "Failed to load Claude thread messages ({:?}): {}",
-                        error.code, error.message
-                    )
-                })?;
-            Ok(messages
-                .into_iter()
-                .map(map_claude_thread_message)
-                .collect::<Vec<ThreadMessagePayload>>())
-        }
-        ProviderId::Codex => {
-            let messages = CodexAdapter::new()
-                .get_thread_messages(thread_id)
-                .map_err(|error| {
-                    format!(
-                        "Failed to load Codex thread messages ({:?}): {}",
-                        error.code, error.message
-                    )
-                })?;
-            Ok(messages
-                .into_iter()
-                .map(map_codex_thread_message)
-                .collect::<Vec<ThreadMessagePayload>>())
-        }
-        ProviderId::OpenCode => {
-            let messages = OpenCodeAdapter::new()
-                .get_thread_messages(thread_id)
-                .map_err(|error| {
-                    format!(
-                        "Failed to load OpenCode thread messages ({:?}): {}",
-                        error.code, error.message
-                    )
-                })?;
-            Ok(messages
-                .into_iter()
-                .map(map_opencode_thread_message)
-                .collect::<Vec<ThreadMessagePayload>>())
-        }
-    }
 }
 
 pub fn get_codex_thread_runtime_state(
@@ -149,31 +90,6 @@ pub fn get_opencode_thread_runtime_state(
     Ok(map_opencode_thread_runtime_state(state))
 }
 
-pub fn send_claude_message(
-    thread_id: &str,
-    content: &str,
-    project_path: Option<&str>,
-) -> Result<SendClaudeMessageResponse, String> {
-    let adapter = ClaudeAdapter::new();
-    let result = adapter
-        .send_message(thread_id, content, project_path)
-        .map_err(|error| {
-            format!(
-                "Failed to send message to Claude thread ({:?}): {}",
-                error.code, error.message
-            )
-        })?;
-    Ok(map_send_message_result(result))
-}
-
-fn map_send_message_result(result: ClaudeSendMessageResult) -> SendClaudeMessageResponse {
-    SendClaudeMessageResponse {
-        thread_id: result.thread_id,
-        response_text: result.response_text,
-        raw_output: result.raw_output,
-    }
-}
-
 fn map_claude_thread_overview(overview: ClaudeThreadOverview) -> ThreadSummaryPayload {
     ThreadSummaryPayload {
         id: overview.summary.id,
@@ -210,35 +126,6 @@ fn map_opencode_thread_overview(overview: OpenCodeThreadOverview) -> ThreadSumma
     }
 }
 
-fn map_claude_thread_message(message: ClaudeThreadMessage) -> ThreadMessagePayload {
-    ThreadMessagePayload {
-        role: message.role,
-        content: message.content,
-        timestamp_ms: message.timestamp_ms,
-        kind: message.kind,
-        collapsed: message.collapsed,
-    }
-}
-
-fn map_codex_thread_message(message: CodexThreadMessage) -> ThreadMessagePayload {
-    ThreadMessagePayload {
-        role: message.role,
-        content: message.content,
-        timestamp_ms: message.timestamp_ms,
-        kind: message.kind,
-        collapsed: message.collapsed,
-    }
-}
-
-fn map_opencode_thread_message(message: OpenCodeThreadMessage) -> ThreadMessagePayload {
-    ThreadMessagePayload {
-        role: message.role,
-        content: message.content,
-        timestamp_ms: message.timestamp_ms,
-        kind: message.kind,
-        collapsed: message.collapsed,
-    }
-}
 
 fn map_codex_thread_runtime_state(
     state: CodexThreadRuntimeState,

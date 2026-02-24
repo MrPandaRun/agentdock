@@ -19,3 +19,6 @@ target/
 
 # macOS
 .DS_Store
+
+# Local Chinese docs workspace
+local-docs/

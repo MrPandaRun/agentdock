@@ -2,29 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
-  AgentThreadMessage,
   AgentThreadSummary,
-  RightPaneMode,
   ThreadProviderId,
 } from "@/types";
 import {
   folderNameFromProjectPath,
-  makeLocalMessage,
   normalizeProjectPath,
   pickCreatedThread,
   resolveSelectedThreadId,
   sortableTimestamp,
 } from "@/lib/thread";
-
-const RIGHT_PANE_MODE_KEY = "agentdock.desktop.right_pane_mode";
-
-function readStoredRightPaneMode(): RightPaneMode {
-  if (typeof window === "undefined") {
-    return "terminal";
-  }
-  const raw = window.localStorage.getItem(RIGHT_PANE_MODE_KEY);
-  return raw === "ui" ? "ui" : "terminal";
-}
 
 export interface ThreadFolderGroupItem<T extends AgentThreadSummary = AgentThreadSummary> {
   key: string;
@@ -50,37 +37,26 @@ export interface UseThreadsResult {
   threads: AgentThreadSummary[];
   selectedThreadId: string | null;
   selectedThread: AgentThreadSummary | null;
-  messages: AgentThreadMessage[];
   folderGroups: ThreadFolderGroupItem[];
   selectedFolderKey: string | null;
   loadingThreads: boolean;
-  loadingMessages: boolean;
-  sending: boolean;
   error: string | null;
-  rightPaneMode: RightPaneMode;
   creatingThreadFolderKey: string | null;
   newThreadLaunch: EmbeddedTerminalNewThreadLaunch | null;
   newThreadBindingStatus: NewThreadBindingStatus | null;
-  setRightPaneMode: (mode: RightPaneMode) => void;
   setError: (error: string | null) => void;
   loadThreads: () => Promise<void>;
-  loadMessages: (threadId: string, providerId: string) => Promise<AgentThreadMessage[]>;
   handleSelectThread: (threadId: string) => void;
   handleCreateThreadInFolder: (projectPath: string, providerId: ThreadProviderId) => Promise<void>;
   handleNewThreadLaunchSettled: (payload: EmbeddedTerminalLaunchSettledPayload) => void;
   handleEmbeddedTerminalSessionExit: () => void;
-  handleSendMessage: (content: string) => Promise<void>;
 }
 
 export function useThreads(): UseThreadsResult {
   const [threads, setThreads] = useState<AgentThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<AgentThreadMessage[]>([]);
   const [loadingThreads, setLoadingThreads] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(false);
-  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [rightPaneMode, setRightPaneMode] = useState<RightPaneMode>(readStoredRightPaneMode);
   const [creatingThreadFolderKey, setCreatingThreadFolderKey] = useState<string | null>(null);
   const [newThreadLaunch, setNewThreadLaunch] = useState<EmbeddedTerminalNewThreadLaunch | null>(
     null,
@@ -149,16 +125,6 @@ export function useThreads(): UseThreadsResult {
     }
   }, []);
 
-  const loadMessages = useCallback(async (threadId: string, providerId: string) => {
-    const data = await invoke<AgentThreadMessage[]>("get_thread_messages", {
-      request: {
-        threadId,
-        providerId,
-      },
-    });
-    return data;
-  }, []);
-
   const clearPendingNewThreadLaunch = useCallback((launch: EmbeddedTerminalNewThreadLaunch) => {
     const isActiveLaunch = pendingNewThreadLaunchIdRef.current === launch.launchId;
     if (!isActiveLaunch) {
@@ -205,7 +171,6 @@ export function useThreads(): UseThreadsResult {
       const launchId = Date.now();
       setCreatingThreadFolderKey(projectPath);
       setError(null);
-      setRightPaneMode("terminal");
       pendingNewThreadLaunchIdRef.current = launchId;
       setNewThreadBindingStatus("starting");
       setNewThreadLaunch({
@@ -274,89 +239,12 @@ export function useThreads(): UseThreadsResult {
     void loadThreads();
   }, [loadThreads]);
 
-  const handleSendMessage = useCallback(
-    async (content: string) => {
-      if (!selectedThread || sending) {
-        return;
-      }
-
-      const trimmedContent = content.trim();
-      if (!trimmedContent) {
-        return;
-      }
-
-      const optimisticMessage = makeLocalMessage("user", trimmedContent);
-      
-      if (selectedThread.providerId !== "claude_code") {
-        setError(
-          "UI send is currently supported for Claude Code only. Use Terminal mode for Codex/OpenCode.",
-        );
-        return;
-      }
-
-      setMessages((current) => [...current, optimisticMessage]);
-      setSending(true);
-      setError(null);
-
-      try {
-        interface SendClaudeMessageResponse {
-          threadId: string;
-          responseText: string;
-          rawOutput: string;
-        }
-
-        const response = await invoke<SendClaudeMessageResponse>("send_claude_message", {
-          request: {
-            threadId: selectedThread.id,
-            content: trimmedContent,
-            projectPath: selectedThread.projectPath,
-          },
-        });
-
-        const refreshed = await loadMessages(selectedThread.id, selectedThread.providerId);
-        const hasResponse = refreshed.some(
-          (message) =>
-            message.role === "assistant" &&
-            message.content.includes(response.responseText),
-        );
-
-        if (hasResponse) {
-          setMessages(refreshed);
-        } else {
-          setMessages([
-            ...refreshed,
-            makeLocalMessage("assistant", response.responseText || response.rawOutput),
-          ]);
-        }
-      } catch (sendError) {
-        setMessages((current) => current.filter((item) => item !== optimisticMessage));
-        const message =
-          sendError instanceof Error ? sendError.message : String(sendError);
-        setError(message);
-      } finally {
-        setSending(false);
-      }
-    },
-    [loadMessages, selectedThread, sending],
-  );
-
   useEffect(() => {
     void loadThreads();
   }, [loadThreads]);
 
   useEffect(() => {
-    if (rightPaneMode === "terminal") {
-      return;
-    }
-    pendingNewThreadLaunchIdRef.current = null;
-    setNewThreadBindingStatus(null);
-    setNewThreadLaunch(null);
-    setCreatingThreadFolderKey(null);
-  }, [rightPaneMode]);
-
-  useEffect(() => {
     if (
-      rightPaneMode !== "terminal" ||
       newThreadBindingStatus !== "awaiting_discovery" ||
       !newThreadLaunch ||
       pendingNewThreadLaunchIdRef.current !== newThreadLaunch.launchId
@@ -400,86 +288,24 @@ export function useThreads(): UseThreadsResult {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [newThreadBindingStatus, newThreadLaunch, rightPaneMode, tryBindNewThreadLaunch]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage.setItem(RIGHT_PANE_MODE_KEY, rightPaneMode);
-  }, [rightPaneMode]);
-
-  useEffect(() => {
-    if (rightPaneMode !== "ui") {
-      setLoadingMessages(false);
-      return;
-    }
-
-    if (!selectedThreadId) {
-      setMessages([]);
-      return;
-    }
-
-    let active = true;
-    setLoadingMessages(true);
-    setError(null);
-
-    const providerId = selectedThread?.providerId;
-    if (!providerId) {
-      setMessages([]);
-      setLoadingMessages(false);
-      return;
-    }
-
-    void loadMessages(selectedThreadId, providerId)
-      .then((data) => {
-        if (!active) {
-          return;
-        }
-        setMessages(data);
-      })
-      .catch((loadError: unknown) => {
-        if (!active) {
-          return;
-        }
-        const message =
-          loadError instanceof Error ? loadError.message : String(loadError);
-        setError(message);
-      })
-      .finally(() => {
-        if (active) {
-          setLoadingMessages(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [loadMessages, rightPaneMode, selectedThread, selectedThreadId]);
+  }, [newThreadBindingStatus, newThreadLaunch, tryBindNewThreadLaunch]);
 
   return {
     threads,
     selectedThreadId,
     selectedThread,
-    messages,
     folderGroups,
     selectedFolderKey,
     loadingThreads,
-    loadingMessages,
-    sending,
     error,
-    rightPaneMode,
     creatingThreadFolderKey,
     newThreadLaunch,
     newThreadBindingStatus,
-    setRightPaneMode,
     setError,
     loadThreads,
-    loadMessages,
     handleSelectThread,
     handleCreateThreadInFolder,
     handleNewThreadLaunchSettled,
     handleEmbeddedTerminalSessionExit,
-    handleSendMessage,
   };
 }

@@ -1,10 +1,11 @@
 use provider_contract::{
     ProviderAdapter, ProviderError, ProviderErrorCode, ProviderHealthCheckRequest,
     ProviderHealthCheckResult, ProviderHealthStatus, ProviderId, ProviderResult,
-    ResumeThreadRequest, ResumeThreadResult, SwitchContextSummary, ThreadSummary,
+    ResumeThreadRequest, ResumeThreadResult, ThreadSummary,
 };
 use serde_json::Value;
 use std::cmp::Reverse;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -14,8 +15,6 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 const CODEX_HOME_DIR_ENV: &str = "AGENTDOCK_CODEX_HOME_DIR";
-const MESSAGE_KIND_TEXT: &str = "text";
-const MESSAGE_KIND_TOOL: &str = "tool";
 const CODEX_AGENT_ACTIVITY_WINDOW_MS: i64 = 120_000;
 
 #[derive(Debug, Clone)]
@@ -23,24 +22,6 @@ struct ThreadRecord {
     summary: ThreadSummary,
     source_path: PathBuf,
     sort_key: i64,
-}
-
-#[derive(Debug, Clone)]
-struct MessageRecord {
-    role: String,
-    content: String,
-    timestamp_ms: Option<i64>,
-    kind: String,
-    collapsed: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodexThreadMessage {
-    pub role: String,
-    pub content: String,
-    pub timestamp_ms: Option<i64>,
-    pub kind: String,
-    pub collapsed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,21 +71,6 @@ impl CodexAdapter {
     pub fn with_home_dir<P: Into<PathBuf>>(mut self, home_dir: P) -> Self {
         self.home_dir_override = Some(home_dir.into());
         self
-    }
-
-    pub fn get_thread_messages(&self, thread_id: &str) -> ProviderResult<Vec<CodexThreadMessage>> {
-        let thread_record = self.find_thread_record(thread_id)?;
-        let messages = load_thread_messages(&thread_record.source_path);
-        Ok(messages
-            .into_iter()
-            .map(|message| CodexThreadMessage {
-                role: message.role,
-                content: message.content,
-                timestamp_ms: message.timestamp_ms,
-                kind: message.kind,
-                collapsed: message.collapsed,
-            })
-            .collect())
     }
 
     pub fn get_thread_runtime_state(
@@ -161,10 +127,11 @@ impl CodexAdapter {
     fn scan_thread_records(&self) -> Vec<ThreadRecord> {
         let mut files = Vec::new();
         collect_jsonl_files(&self.codex_sessions_dir(), &mut files);
+        let official_titles = load_codex_thread_titles(&self.codex_home_dir());
 
         let mut records = Vec::new();
         for path in files {
-            if let Some(record) = parse_thread_file(&path) {
+            if let Some(record) = parse_thread_file(&path, &official_titles) {
                 records.push(record);
             }
         }
@@ -298,44 +265,6 @@ impl ProviderAdapter for CodexAdapter {
             )),
         })
     }
-
-    fn summarize_switch_context(&self, thread_id: &str) -> ProviderResult<SwitchContextSummary> {
-        let thread_record = self.find_thread_record(thread_id)?;
-        let messages = load_thread_messages(&thread_record.source_path);
-
-        let first_user_message = messages.iter().find(|msg| msg.role == "user");
-        let latest_user_message = messages.iter().rev().find(|msg| msg.role == "user");
-
-        let objective = first_user_message
-            .map(|msg| truncate_text(&msg.content, 180))
-            .filter(|text| !text.is_empty())
-            .unwrap_or_else(|| format!("Continue Codex thread {thread_id}"));
-
-        let mut constraints =
-            vec!["Preserve existing project constraints and coding style.".to_string()];
-        if thread_record.summary.project_path != "." {
-            constraints.push(format!(
-                "Use project directory: {}",
-                thread_record.summary.project_path
-            ));
-        }
-
-        let pending_tasks = latest_user_message
-            .map(|msg| {
-                format!(
-                    "Continue from latest request: {}",
-                    truncate_text(&msg.content, 140)
-                )
-            })
-            .map(|line| vec![line])
-            .unwrap_or_else(|| vec![format!("Resume Codex thread {thread_id}")]);
-
-        Ok(SwitchContextSummary {
-            objective,
-            constraints,
-            pending_tasks,
-        })
-    }
 }
 
 fn provider_error(code: ProviderErrorCode, message: String, retryable: bool) -> ProviderError {
@@ -369,12 +298,47 @@ fn collect_jsonl_files(root: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
-fn parse_thread_file(path: &Path) -> Option<ThreadRecord> {
+fn load_codex_thread_titles(codex_home_dir: &Path) -> HashMap<String, String> {
+    let mut titles = HashMap::new();
+    let state_path = codex_home_dir.join(".codex-global-state.json");
+    let raw = match fs::read_to_string(state_path) {
+        Ok(raw) => raw,
+        Err(_) => return titles,
+    };
+    let parsed: Value = match serde_json::from_str(&raw) {
+        Ok(parsed) => parsed,
+        Err(_) => return titles,
+    };
+
+    let title_entries = match parsed
+        .get("thread-titles")
+        .and_then(|value| value.get("titles"))
+        .and_then(Value::as_object)
+    {
+        Some(entries) => entries,
+        None => return titles,
+    };
+
+    for (thread_id, title_value) in title_entries {
+        if let Some(title) = title_value
+            .as_str()
+            .and_then(non_empty_trimmed)
+            .map(ToString::to_string)
+        {
+            titles.insert(thread_id.to_string(), title);
+        }
+    }
+
+    titles
+}
+
+fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> Option<ThreadRecord> {
     let file = File::open(path).ok()?;
     let reader = BufReader::new(file);
 
     let mut session_id: Option<String> = None;
     let mut project_path: Option<String> = None;
+    let mut first_user_title: Option<String> = None;
     let mut last_active_at: Option<String> = None;
     let mut sort_key = file_last_modified_ms(path).unwrap_or(0);
 
@@ -401,6 +365,37 @@ fn parse_thread_file(path: &Path) -> Option<ThreadRecord> {
             }
         }
 
+        if first_user_title.is_none() {
+            let record_type = parsed.get("type").and_then(Value::as_str);
+            match record_type {
+                Some("response_item") => {
+                    if let Some(payload) = parsed.get("payload") {
+                        let item_type = payload.get("type").and_then(Value::as_str);
+                        let role = payload
+                            .get("role")
+                            .and_then(Value::as_str)
+                            .unwrap_or("assistant");
+                        if item_type == Some("message") && role == "user" {
+                            first_user_title = extract_codex_preview_text(payload)
+                                .map(|text| truncate_text(&text, 72));
+                        }
+                    }
+                }
+                Some("event_msg") => {
+                    if let Some(payload) = parsed.get("payload") {
+                        if payload.get("type").and_then(Value::as_str) == Some("user_message") {
+                            first_user_title = payload
+                                .get("message")
+                                .and_then(Value::as_str)
+                                .and_then(normalize_preview_text)
+                                .map(|text| truncate_text(&text, 72));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
         if let Some(timestamp_ms) = parse_timestamp_ms(parsed.get("timestamp")) {
             last_active_at = Some(timestamp_ms.to_string());
             sort_key = sort_key.max(timestamp_ms);
@@ -414,8 +409,12 @@ fn parse_thread_file(path: &Path) -> Option<ThreadRecord> {
     })?;
 
     let project_path = project_path.unwrap_or_else(|| ".".to_string());
-    let title = path_basename(&project_path)
+    let title = official_titles
+        .get(&session_id)
+        .and_then(|title| non_empty_trimmed(title))
         .map(ToString::to_string)
+        .or_else(|| first_user_title.filter(|text| !text.is_empty()))
+        .or_else(|| path_basename(&project_path).map(ToString::to_string))
         .unwrap_or_else(|| format!("Codex session {}", truncate_text(&session_id, 8)));
 
     let summary = ThreadSummary {
@@ -468,31 +467,6 @@ fn normalize_epoch(raw: i64) -> i64 {
     } else {
         raw
     }
-}
-
-fn load_thread_messages(path: &Path) -> Vec<MessageRecord> {
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(_) => return Vec::new(),
-    };
-    let reader = BufReader::new(file);
-    let mut messages = Vec::new();
-
-    for line in reader.lines().map_while(Result::ok) {
-        let parsed: Value = match serde_json::from_str(&line) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-
-        let timestamp_ms = parse_timestamp_ms(parsed.get("timestamp"));
-        if parsed.get("type").and_then(Value::as_str) == Some("response_item") {
-            if let Some(payload) = parsed.get("payload") {
-                messages.extend(extract_response_item_messages(payload, timestamp_ms));
-            }
-        }
-    }
-
-    messages
 }
 
 fn load_thread_runtime_state(path: &Path) -> CodexThreadRuntimeState {
@@ -587,244 +561,90 @@ fn extract_semantic_event_kind_from_response_item(
     }
 }
 
-fn extract_response_item_messages(
-    payload: &Value,
-    timestamp_ms: Option<i64>,
-) -> Vec<MessageRecord> {
-    let item_type = payload.get("type").and_then(Value::as_str);
-    match item_type {
-        Some("message") => {
-            let role = payload
-                .get("role")
-                .and_then(Value::as_str)
-                .unwrap_or("assistant");
-            let text = payload
-                .get("content")
-                .and_then(extract_codex_message_text)
-                .and_then(sanitize_codex_text);
+/// Lightweight last-message preview: scans the JSONL file and extracts the last
+/// visible text content from response_item messages without full message parsing.
+fn build_last_message_preview(path: &Path) -> Option<String> {
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file);
+    let mut last_visible_text: Option<String> = None;
 
-            text.map(|content| vec![text_record(role, content, timestamp_ms)])
-                .unwrap_or_default()
+    for line in reader.lines().map_while(Result::ok) {
+        let parsed: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if parsed.get("type").and_then(Value::as_str) != Some("response_item") {
+            continue;
         }
-        Some("function_call") => {
-            let name = payload
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("Tool");
-            let arguments = payload
-                .get("arguments")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let content = summarize_function_call(name, arguments);
-            vec![tool_record("assistant", content, timestamp_ms)]
+
+        let payload = match parsed.get("payload") {
+            Some(value) => value,
+            None => continue,
+        };
+
+        let item_type = payload.get("type").and_then(Value::as_str);
+        if item_type != Some("message") {
+            continue;
         }
-        Some("function_call_output") => {
-            let output = payload.get("output").and_then(Value::as_str).unwrap_or("");
-            summarize_function_output(output)
-                .map(|content| vec![tool_record("assistant", content, timestamp_ms)])
-                .unwrap_or_default()
+
+        if let Some(text) = extract_codex_preview_text(payload) {
+            last_visible_text = Some(text);
         }
-        _ => Vec::new(),
     }
+
+    last_visible_text.map(|text| truncate_text(&text, 140))
 }
 
-fn extract_codex_message_text(value: &Value) -> Option<String> {
-    match value {
+/// Extract visible text from a Codex response_item message payload for preview.
+fn extract_codex_preview_text(payload: &Value) -> Option<String> {
+    let content = payload.get("content")?;
+    match content {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty()
+                || trimmed.starts_with("<user_instructions>")
+                || trimmed.starts_with("<environment_context>")
+            {
+                None
+            } else {
+                normalize_preview_text(trimmed)
+            }
+        }
         Value::Array(items) => {
-            let mut chunks = Vec::new();
+            let mut last_text: Option<String> = None;
             for item in items {
-                if let Some(text) = extract_codex_content_text(item) {
-                    if !text.trim().is_empty() {
-                        chunks.push(text);
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    if let Some(normalized) = normalize_preview_text(text) {
+                        last_text = Some(normalized);
                     }
                 }
             }
-
-            if chunks.is_empty() {
-                None
-            } else {
-                Some(chunks.join("\n\n"))
-            }
-        }
-        Value::String(text) => Some(text.to_string()),
-        Value::Object(_) => extract_codex_content_text(value),
-        _ => None,
-    }
-}
-
-fn extract_codex_content_text(value: &Value) -> Option<String> {
-    match value {
-        Value::String(text) => Some(text.to_string()),
-        Value::Object(object) => {
-            if let Some(text) = object.get("text").and_then(Value::as_str) {
-                return Some(text.to_string());
-            }
-            if let Some(nested) = object.get("content") {
-                return extract_codex_message_text(nested);
-            }
-            None
-        }
-        Value::Array(items) => {
-            let mut chunks = Vec::new();
-            for item in items {
-                if let Some(text) = extract_codex_content_text(item) {
-                    if !text.trim().is_empty() {
-                        chunks.push(text);
-                    }
-                }
-            }
-            if chunks.is_empty() {
-                None
-            } else {
-                Some(chunks.join("\n"))
-            }
+            last_text
         }
         _ => None,
     }
 }
 
-fn sanitize_codex_text(raw: String) -> Option<String> {
+fn normalize_preview_text(raw: &str) -> Option<String> {
+    let normalized = raw
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ");
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn non_empty_trimmed(raw: &str) -> Option<&str> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return None;
+        None
+    } else {
+        Some(trimmed)
     }
-
-    if trimmed.starts_with("<user_instructions>") || trimmed.starts_with("<environment_context>") {
-        return None;
-    }
-
-    Some(trimmed.to_string())
-}
-
-fn summarize_function_call(name: &str, arguments: &str) -> String {
-    if name == "shell" {
-        if let Ok(parsed) = serde_json::from_str::<Value>(arguments) {
-            if let Some(command) = parsed.get("command") {
-                let rendered = render_command(command);
-                if !rendered.is_empty() {
-                    return format!("Shell\nIN {}", truncate_text(&rendered, 260));
-                }
-            }
-        }
-    }
-
-    let normalized = arguments
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .join(" ");
-    if normalized.is_empty() {
-        return name.to_string();
-    }
-
-    format!("{}\nIN {}", name, truncate_text(&normalized, 260))
-}
-
-fn summarize_function_output(raw: &str) -> Option<String> {
-    let parsed = serde_json::from_str::<Value>(raw).ok();
-    let output = parsed
-        .as_ref()
-        .and_then(|value| value.get("output"))
-        .and_then(Value::as_str)
-        .unwrap_or(raw);
-
-    let cleaned = strip_ansi_escapes(output);
-    let lines = cleaned
-        .lines()
-        .map(str::trim_end)
-        .filter(|line| !line.trim().is_empty())
-        .take(8)
-        .map(|line| truncate_text(line.trim(), 240))
-        .collect::<Vec<String>>();
-
-    if lines.is_empty() {
-        return None;
-    }
-
-    if lines.len() == 1 {
-        return Some(format!("OUT {}", lines[0]));
-    }
-
-    Some(format!("OUT\n{}", lines.join("\n")))
-}
-
-fn render_command(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.to_string(),
-        Value::Array(items) => items
-            .iter()
-            .filter_map(Value::as_str)
-            .collect::<Vec<&str>>()
-            .join(" "),
-        _ => String::new(),
-    }
-}
-
-fn strip_ansi_escapes(raw: &str) -> String {
-    let mut output = String::with_capacity(raw.len());
-    let mut in_escape = false;
-
-    for ch in raw.chars() {
-        if in_escape {
-            if ch.is_ascii_alphabetic() || ch == '~' {
-                in_escape = false;
-            }
-            continue;
-        }
-
-        if ch == '\u{1b}' {
-            in_escape = true;
-            continue;
-        }
-
-        output.push(ch);
-    }
-
-    output
-}
-
-fn text_record(role: &str, content: String, timestamp_ms: Option<i64>) -> MessageRecord {
-    MessageRecord {
-        role: role.to_string(),
-        content,
-        timestamp_ms,
-        kind: MESSAGE_KIND_TEXT.to_string(),
-        collapsed: false,
-    }
-}
-
-fn tool_record(role: &str, content: String, timestamp_ms: Option<i64>) -> MessageRecord {
-    MessageRecord {
-        role: role.to_string(),
-        content,
-        timestamp_ms,
-        kind: MESSAGE_KIND_TOOL.to_string(),
-        collapsed: true,
-    }
-}
-
-fn build_last_message_preview(path: &Path) -> Option<String> {
-    let messages = load_thread_messages(path);
-    let message = messages
-        .iter()
-        .rev()
-        .find(|record| record.kind == MESSAGE_KIND_TEXT && !record.content.trim().is_empty())
-        .or_else(|| {
-            messages
-                .iter()
-                .rev()
-                .find(|record| !record.content.trim().is_empty())
-        })?;
-
-    let normalized = message
-        .content
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .join(" ");
-    if normalized.is_empty() {
-        return None;
-    }
-
-    Some(truncate_text(&normalized, 140))
 }
 
 fn truncate_text(input: &str, max_chars: usize) -> String {
@@ -958,44 +778,71 @@ mod tests {
         assert_eq!(threads[0].id, "codex-a");
         assert_eq!(threads[0].provider_id, ProviderId::Codex);
         assert_eq!(threads[0].project_path, "/workspace/a");
+        assert_eq!(threads[0].title, "a");
     }
 
     #[test]
-    fn get_thread_messages_extracts_text_and_tool_events() {
-        let codex_home = test_temp_dir("thread-messages").join(".codex");
+    fn list_threads_prefers_codex_official_title_map() {
+        let codex_home = test_temp_dir("title-from-codex-state").join(".codex");
         let session_file = codex_home
             .join("sessions")
             .join("2026")
             .join("02")
             .join("12")
-            .join("session-b.jsonl");
+            .join("session-title.jsonl");
 
         write_lines(
             &session_file,
             &[
-                r#"{"timestamp":"2026-02-12T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-b","cwd":"/workspace/b"}}"#,
-                r#"{"timestamp":"2026-02-12T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}"#,
-                r#"{"timestamp":"2026-02-12T10:00:02.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"bash\",\"-lc\",\"ls\"]}"}}"#,
-                r#"{"timestamp":"2026-02-12T10:00:03.000Z","type":"response_item","payload":{"type":"function_call_output","output":"{\"output\":\"file-a\\nfile-b\"}"}}"#,
-                r#"{"timestamp":"2026-02-12T10:00:04.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-title","cwd":"/workspace/title-project"}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"  Implement   unified thread title strategy  "}]}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Working on it"}]}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:03.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Second request should not replace title"}]}}"#,
+            ],
+        );
+        fs::write(
+            codex_home.join(".codex-global-state.json"),
+            r#"{"thread-titles":{"titles":{"codex-title":"Codex 官方标题"}}}"#,
+        )
+        .expect("global state should be writable");
+
+        let adapter = CodexAdapter::new().with_home_dir(&codex_home);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "codex-title");
+        assert_eq!(threads[0].title, "Codex 官方标题");
+    }
+
+    #[test]
+    fn list_threads_falls_back_to_first_user_message_without_official_title() {
+        let codex_home = test_temp_dir("title-fallback-user").join(".codex");
+        let session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("12")
+            .join("session-title.jsonl");
+
+        write_lines(
+            &session_file,
+            &[
+                r#"{"timestamp":"2026-02-12T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-title","cwd":"/workspace/title-project"}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"  Implement   unified thread title strategy  "}]}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Working on it"}]}}"#,
             ],
         );
 
         let adapter = CodexAdapter::new().with_home_dir(&codex_home);
-        let messages = adapter
-            .get_thread_messages("codex-b")
-            .expect("messages should be loaded");
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
 
-        assert_eq!(messages.len(), 4);
-        assert_eq!(messages[0].role, "user");
-        assert_eq!(messages[0].kind, MESSAGE_KIND_TEXT);
-        assert_eq!(messages[1].kind, MESSAGE_KIND_TOOL);
-        assert!(messages[1].content.contains("Shell"));
-        assert!(messages[1].content.contains("IN"));
-        assert_eq!(messages[2].kind, MESSAGE_KIND_TOOL);
-        assert!(messages[2].content.contains("OUT"));
-        assert_eq!(messages[3].role, "assistant");
-        assert_eq!(messages[3].content, "done");
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "codex-title");
+        assert_eq!(threads[0].title, "Implement unified thread title strategy");
     }
 
     #[test]

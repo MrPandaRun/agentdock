@@ -16,11 +16,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::list_threads,
-            commands::get_thread_messages,
             commands::get_claude_thread_runtime_state,
             commands::get_codex_thread_runtime_state,
             commands::get_opencode_thread_runtime_state,
-            commands::send_claude_message,
             commands::open_thread_in_terminal,
             commands::open_new_thread_in_terminal,
             commands::start_embedded_terminal,
