@@ -387,7 +387,7 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
                             first_user_title = payload
                                 .get("message")
                                 .and_then(Value::as_str)
-                                .and_then(normalize_preview_text)
+                                .and_then(sanitize_preview_text)
                                 .map(|text| truncate_text(&text, 72));
                         }
                     }
@@ -600,22 +600,12 @@ fn build_last_message_preview(path: &Path) -> Option<String> {
 fn extract_codex_preview_text(payload: &Value) -> Option<String> {
     let content = payload.get("content")?;
     match content {
-        Value::String(text) => {
-            let trimmed = text.trim();
-            if trimmed.is_empty()
-                || trimmed.starts_with("<user_instructions>")
-                || trimmed.starts_with("<environment_context>")
-            {
-                None
-            } else {
-                normalize_preview_text(trimmed)
-            }
-        }
+        Value::String(text) => sanitize_preview_text(text),
         Value::Array(items) => {
             let mut last_text: Option<String> = None;
             for item in items {
                 if let Some(text) = item.get("text").and_then(Value::as_str) {
-                    if let Some(normalized) = normalize_preview_text(text) {
+                    if let Some(normalized) = sanitize_preview_text(text) {
                         last_text = Some(normalized);
                     }
                 }
@@ -624,6 +614,38 @@ fn extract_codex_preview_text(payload: &Value) -> Option<String> {
         }
         _ => None,
     }
+}
+
+fn sanitize_preview_text(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || is_internal_instruction_text(trimmed) {
+        return None;
+    }
+
+    normalize_preview_text(trimmed)
+}
+
+fn is_internal_instruction_text(raw: &str) -> bool {
+    let lower = raw.to_ascii_lowercase();
+    let stripped = lower
+        .trim_start_matches(|ch: char| ch.is_ascii_punctuation())
+        .trim_start();
+
+    if lower.starts_with("<user_instructions>")
+        || lower.starts_with("<environment_context>")
+        || lower.starts_with("<instructions>")
+        || lower.starts_with("# agents.md instructions for ")
+        || lower.starts_with("# context from my ide setup:")
+        || lower.starts_with("this file provides guidance to codex")
+        || stripped.starts_with("you are a helpful assistant")
+    {
+        return true;
+    }
+
+    lower.contains("\n<instructions>")
+        && (lower.contains("### available skills")
+            || lower.contains("### how to use skills")
+            || lower.contains("# repository guidelines"))
 }
 
 fn normalize_preview_text(raw: &str) -> Option<String> {
@@ -843,6 +865,121 @@ mod tests {
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "codex-title");
         assert_eq!(threads[0].title, "Implement unified thread title strategy");
+    }
+
+    #[test]
+    fn list_threads_skips_agents_instruction_blocks_for_title_fallback() {
+        let codex_home = test_temp_dir("title-skip-agents-instructions").join(".codex");
+        let session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("24")
+            .join("session-title.jsonl");
+
+        write_lines(
+            &session_file,
+            &[
+                r#"{"timestamp":"2026-02-24T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-title","cwd":"/workspace/title-project"}}"#,
+                r##"{"timestamp":"2026-02-24T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /workspace/title-project\n\n<INSTRUCTIONS>\n# Repository Guidelines\n### Available skills\n### How to use skills\n</INSTRUCTIONS>"}]}}"##,
+                r#"{"timestamp":"2026-02-24T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"  Ship   universal   macOS   build  "} ]}}"#,
+            ],
+        );
+
+        let adapter = CodexAdapter::new().with_home_dir(&codex_home);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].title, "Ship universal macOS build");
+    }
+
+    #[test]
+    fn list_threads_skips_legacy_user_instruction_payload_for_title_fallback() {
+        let codex_home = test_temp_dir("title-skip-legacy-instructions").join(".codex");
+        let session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("24")
+            .join("session-title.jsonl");
+
+        write_lines(
+            &session_file,
+            &[
+                r#"{"timestamp":"2026-02-24T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-title","cwd":"/workspace/title-project"}}"#,
+                r#"{"timestamp":"2026-02-24T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":"This file provides guidance to Codex when working with code in this repository."}}"#,
+                r#"{"timestamp":"2026-02-24T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":"Fix thread title mismatch with Codex official titles"}}"#,
+            ],
+        );
+
+        let adapter = CodexAdapter::new().with_home_dir(&codex_home);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(
+            threads[0].title,
+            "Fix thread title mismatch with Codex official titles"
+        );
+    }
+
+    #[test]
+    fn list_threads_skips_ide_setup_context_payload_for_title_fallback() {
+        let codex_home = test_temp_dir("title-skip-ide-setup-context").join(".codex");
+        let session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("24")
+            .join("session-title.jsonl");
+
+        write_lines(
+            &session_file,
+            &[
+                r#"{"timestamp":"2026-02-24T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-title","cwd":"/workspace/title-project"}}"#,
+                r##"{"timestamp":"2026-02-24T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# Context from my IDE setup:\n\n## Active file: AGENTS.md\n\n## Open tabs:\n- AGENTS.md\n- README.md"}]}}"##,
+                r#"{"timestamp":"2026-02-24T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Align thread title with official Codex behavior"}]}}"#,
+            ],
+        );
+
+        let adapter = CodexAdapter::new().with_home_dir(&codex_home);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].title, "Align thread title with official Codex behavior");
+    }
+
+    #[test]
+    fn list_threads_skips_helpful_assistant_prompt_for_title_fallback() {
+        let codex_home = test_temp_dir("title-skip-helpful-assistant").join(".codex");
+        let session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("24")
+            .join("session-title.jsonl");
+
+        write_lines(
+            &session_file,
+            &[
+                r#"{"timestamp":"2026-02-24T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-title","cwd":"/workspace/title-project"}}"#,
+                r#"{"timestamp":"2026-02-24T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":"You are a helpful assistant focused on concise coding answers."}}"#,
+                r#"{"timestamp":"2026-02-24T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":"Stabilize codex thread title extraction rules"}}"#,
+            ],
+        );
+
+        let adapter = CodexAdapter::new().with_home_dir(&codex_home);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].title, "Stabilize codex thread title extraction rules");
     }
 
     #[test]
