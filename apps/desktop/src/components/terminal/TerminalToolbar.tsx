@@ -68,7 +68,7 @@ export function TerminalToolbar({
   }, [moreOpen]);
 
   return (
-    <div className="absolute right-3 top-2 z-20 flex items-center gap-1.5">
+    <div className="absolute right-3 top-1 z-20 flex items-center gap-1.5">
       <Button
         type="button"
         variant="outline"

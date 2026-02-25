@@ -55,13 +55,15 @@ export function useTerminalHostEffects({
 
     const terminal = new Terminal({
       allowProposedApi: true,
+      customGlyphs: false,
       cursorBlink: true,
       convertEol: true,
       drawBoldTextInBrightColors: false,
       minimumContrastRatio: initialThemeRef.current.minimumContrastRatio,
-      fontSize: 12,
+      fontSize: 13,
       lineHeight: 1.0,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      letterSpacing: 0,
+      fontFamily: "MesloLGS-NF-Regular, Menlo, Monaco, ui-monospace, SFMono-Regular, monospace",
       theme: initialThemeRef.current.xterm,
     });
     const fitAddon = new FitAddon();

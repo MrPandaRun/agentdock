@@ -3,9 +3,6 @@ import { useEffect, useState } from "react";
 
 import "@xterm/xterm/css/xterm.css";
 
-import {
-  AGENT_MODE_SWITCH_SHORTCUT_LABEL,
-} from "@/components/terminal/helpDocs";
 import { TerminalHelpPopover } from "@/components/terminal/TerminalHelpPopover";
 import { TerminalToolbar } from "@/components/terminal/TerminalToolbar";
 import type {
@@ -97,7 +94,7 @@ export function EmbeddedTerminal({
       className="relative h-full w-full select-text overflow-hidden"
       style={{ backgroundColor: activeTheme.containerBackground }}
     >
-      <div className="h-full w-full px-1 pb-8 pt-8">
+      <div className="h-full w-full px-1 pb-2 pt-2">
         <div ref={hostRef} className="h-full w-full" />
       </div>
       {isSwitchingThread ? (
@@ -119,7 +116,7 @@ export function EmbeddedTerminal({
         </div>
       ) : null}
       <div
-        className="pointer-events-none absolute left-1.5 top-2 text-[11px]"
+        className="pointer-events-none absolute left-1.5 top-1 text-[11px]"
         style={{ color: activeTheme.commandText }}
       >
         {isRefreshing ? (
@@ -138,7 +135,7 @@ export function EmbeddedTerminal({
       </div>
       {refreshError ? (
         <div
-          className="pointer-events-none absolute left-1.5 top-7 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
+          className="pointer-events-none absolute left-1.5 top-6 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
           style={{
             borderColor: "rgba(244, 63, 94, 0.5)",
             backgroundColor:
@@ -155,7 +152,7 @@ export function EmbeddedTerminal({
         </div>
       ) : happyError ? (
         <div
-          className="pointer-events-none absolute left-1.5 top-7 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
+          className="pointer-events-none absolute left-1.5 top-6 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
           style={{
             borderColor: "rgba(244, 63, 94, 0.5)",
             backgroundColor:
@@ -191,13 +188,6 @@ export function EmbeddedTerminal({
         theme={activeTheme}
         onClose={() => setHelpOpen(false)}
       />
-      <div
-        className="pointer-events-none absolute bottom-2 right-3 max-w-[82%] text-right text-[10px]"
-        style={{ color: activeTheme.hintText }}
-      >
-        Shift+Enter newline · {AGENT_MODE_SWITCH_SHORTCUT_LABEL} mode/model switch
-        (provider-supported) · ⌘/Ctrl+C copy · ⌘/Ctrl+V paste
-      </div>
     </div>
   );
 }
