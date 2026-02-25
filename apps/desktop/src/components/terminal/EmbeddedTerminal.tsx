@@ -94,7 +94,7 @@ export function EmbeddedTerminal({
 
   return (
     <div
-      className="relative h-full w-full overflow-hidden"
+      className="relative h-full w-full select-text overflow-hidden"
       style={{ backgroundColor: activeTheme.containerBackground }}
     >
       <div className="h-full w-full px-1 pb-8 pt-8">

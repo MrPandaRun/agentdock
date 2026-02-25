@@ -34,7 +34,7 @@ export function TerminalHelpPopover({
       ref={popoverRef}
       role="dialog"
       aria-label="Terminal help"
-      className="absolute right-3 top-11 z-20 w-[min(31rem,calc(100%-1.5rem))] rounded-lg border p-3 shadow-2xl"
+      className="absolute right-3 top-11 z-20 w-[min(31rem,calc(100%-1.5rem))] select-text rounded-lg border p-3 shadow-2xl"
       style={{
         borderColor: theme.switchingChipBorder,
         backgroundColor: theme.switchingChipBackground,

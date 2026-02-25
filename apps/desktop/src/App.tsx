@@ -101,7 +101,7 @@ function App() {
   }, [resolvedTheme]);
 
   return (
-    <main className="relative h-full min-h-0 overflow-hidden bg-background">
+    <main className="relative h-full min-h-0 select-none overflow-hidden bg-background">
       {/* Drag region for window movement - workaround for Tauri 2.x macOS overlay issue */}
       <div
         ref={dragRegionRef}
