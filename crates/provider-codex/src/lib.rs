@@ -125,9 +125,10 @@ impl CodexAdapter {
     }
 
     fn scan_thread_records(&self) -> Vec<ThreadRecord> {
+        let codex_home_dir = self.codex_home_dir();
         let mut files = Vec::new();
-        collect_jsonl_files(&self.codex_sessions_dir(), &mut files);
-        let official_titles = load_codex_thread_titles(&self.codex_home_dir());
+        collect_jsonl_files(&codex_home_dir.join("sessions"), &mut files);
+        let official_titles = load_codex_thread_titles(&codex_home_dir);
 
         let mut records = Vec::new();
         for path in files {
@@ -136,6 +137,9 @@ impl CodexAdapter {
             }
         }
 
+        records.retain(|record| {
+            !is_codex_child_agent_project_path(&record.summary.project_path, &codex_home_dir)
+        });
         records.sort_by_key(|record| Reverse(record.sort_key));
         records
     }
@@ -338,6 +342,7 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
 
     let mut session_id: Option<String> = None;
     let mut project_path: Option<String> = None;
+    let mut is_subagent_session = false;
     let mut first_user_title: Option<String> = None;
     let mut last_active_at: Option<String> = None;
     let mut sort_key = file_last_modified_ms(path).unwrap_or(0);
@@ -361,6 +366,14 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
                         .get("cwd")
                         .and_then(Value::as_str)
                         .map(ToString::to_string);
+                }
+                if payload
+                    .get("source")
+                    .and_then(|value| value.get("subagent"))
+                    .and_then(|value| value.get("thread_spawn"))
+                    .is_some()
+                {
+                    is_subagent_session = true;
                 }
             }
         }
@@ -407,6 +420,9 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
             .and_then(|stem| stem.to_str())
             .map(ToString::to_string)
     })?;
+    if is_subagent_session {
+        return None;
+    }
 
     let project_path = project_path.unwrap_or_else(|| ".".to_string());
     let title = official_titles
@@ -701,6 +717,32 @@ fn path_basename(path: &str) -> Option<&str> {
     Path::new(path).file_name()?.to_str()
 }
 
+fn is_codex_child_agent_project_path(project_path: &str, codex_home_dir: &Path) -> bool {
+    path_starts_with_dir(project_path, &codex_home_dir.join("worktrees"))
+}
+
+fn path_starts_with_dir(path: &str, dir: &Path) -> bool {
+    let normalized_path = normalize_path_for_match(path);
+    if normalized_path.is_empty() {
+        return false;
+    }
+
+    let normalized_dir = normalize_path_for_match(&dir.to_string_lossy());
+    if normalized_dir.is_empty() {
+        return false;
+    }
+
+    normalized_path == normalized_dir
+        || normalized_path.starts_with(format!("{normalized_dir}/").as_str())
+}
+
+fn normalize_path_for_match(raw: &str) -> String {
+    raw.trim()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string()
+}
+
 fn now_unix_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -980,6 +1022,92 @@ mod tests {
 
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].title, "Stabilize codex thread title extraction rules");
+    }
+
+    #[test]
+    fn list_threads_ignores_child_agent_sessions_under_codex_worktrees() {
+        let codex_home = test_temp_dir("filter-child-agent-sessions").join(".codex");
+        let parent_session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("24")
+            .join("session-parent.jsonl");
+        let child_session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("24")
+            .join("session-child.jsonl");
+        let child_project_path = codex_home
+            .join("worktrees")
+            .join("e7b3")
+            .join("agentdock")
+            .to_string_lossy()
+            .to_string();
+
+        write_lines(
+            &parent_session_file,
+            &[
+                r#"{"timestamp":"2026-02-24T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-parent","cwd":"/workspace/agentdock"}}"#,
+                r#"{"timestamp":"2026-02-24T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":"Main thread request"}}"#,
+            ],
+        );
+        write_owned_lines(
+            &child_session_file,
+            &[format!(
+                r#"{{"timestamp":"2026-02-24T10:00:02.000Z","type":"session_meta","payload":{{"id":"codex-child","cwd":"{}"}}}}"#,
+                child_project_path.replace('\\', "\\\\")
+            )],
+        );
+
+        let adapter = CodexAdapter::new().with_home_dir(&codex_home);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "codex-parent");
+    }
+
+    #[test]
+    fn list_threads_ignores_subagent_thread_spawn_sessions() {
+        let codex_home = test_temp_dir("filter-subagent-thread-spawn").join(".codex");
+        let parent_session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("27")
+            .join("session-parent.jsonl");
+        let child_session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("27")
+            .join("session-child.jsonl");
+
+        write_lines(
+            &parent_session_file,
+            &[
+                r#"{"timestamp":"2026-02-27T08:49:40.000Z","type":"session_meta","payload":{"id":"codex-parent","cwd":"/workspace/zero"}}"#,
+                r#"{"timestamp":"2026-02-27T08:49:41.000Z","type":"response_item","payload":{"type":"message","role":"user","content":"Main parent prompt"}}"#,
+            ],
+        );
+        write_lines(
+            &child_session_file,
+            &[
+                r#"{"timestamp":"2026-02-27T08:49:51.442Z","type":"session_meta","payload":{"id":"codex-child","cwd":"/workspace/zero","source":{"subagent":{"thread_spawn":{"parent_thread_id":"codex-parent","depth":1,"agent_nickname":"Camellia","agent_role":"awaiter"}}},"agent_nickname":"Camellia","agent_role":"awaiter"}}"#,
+                r#"{"timestamp":"2026-02-27T08:49:52.000Z","type":"response_item","payload":{"type":"message","role":"user","content":"Run in `/workspace/zero`: `pnpm test`"}}"#,
+            ],
+        );
+
+        let adapter = CodexAdapter::new().with_home_dir(&codex_home);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "codex-parent");
     }
 
     #[test]
