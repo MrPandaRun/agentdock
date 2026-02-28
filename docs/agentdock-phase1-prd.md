@@ -118,9 +118,11 @@ Acceptance:
 ## FR-03 Runtime State Query
 
 - Tauri host must expose runtime-state query commands per agent.
+- Tauri host must expose provider install/health status for Create Thread preflight checks.
 
 Acceptance:
 - `get_claude_thread_runtime_state`, `get_codex_thread_runtime_state`, `get_opencode_thread_runtime_state` are available and callable.
+- `list_provider_install_statuses` returns `installed` and `health_status` for all three agents.
 
 ## FR-04 Terminal Session Lifecycle
 
@@ -165,6 +167,7 @@ Acceptance:
 From `apps/desktop/src-tauri/src/commands.rs`:
 
 - `list_threads`
+- `list_provider_install_statuses`
 - `get_claude_thread_runtime_state`
 - `get_codex_thread_runtime_state`
 - `get_opencode_thread_runtime_state`
@@ -187,6 +190,7 @@ From `apps/desktop/src-tauri/src/commands.rs`:
   - list threads from three providers
   - select/resume thread in embedded terminal
   - create new thread launch from sidebar folder menu
+  - verify Create Thread dialog install status and install guidance behavior
 
 ---
 

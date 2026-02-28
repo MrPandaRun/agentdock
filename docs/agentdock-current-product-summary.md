@@ -74,6 +74,8 @@ Thread text behavior:
 - Sidebar item text (`threadPreview`) uses `title` first.
 - If `title` is empty, sidebar falls back to `lastMessagePreview`.
 - Header title uses selected thread `title`.
+- Create Thread dialog displays per-agent install status (`installed` + `health_status`) before launch.
+- If a selected agent CLI is missing, Create is blocked and install guidance is shown.
 
 Consistency intent:
 - Agent adapters should produce stable, agent-official `title` whenever available.
@@ -83,6 +85,7 @@ Consistency intent:
 
 From `apps/desktop/src-tauri/src/commands.rs`:
 - `list_threads`
+- `list_provider_install_statuses`
 - `get_claude_thread_runtime_state`
 - `get_codex_thread_runtime_state`
 - `get_opencode_thread_runtime_state`

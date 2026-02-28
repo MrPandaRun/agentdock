@@ -6,12 +6,13 @@ use crate::payloads::{
     GetOpenCodeThreadRuntimeStateRequest,
     OpenCodeThreadRuntimeStatePayload, OpenNewThreadInTerminalRequest, OpenThreadInHappyRequest,
     OpenThreadInTerminalRequest, OpenThreadInTerminalResponse, ResizeEmbeddedTerminalRequest,
+    ProviderInstallStatusPayload,
     StartEmbeddedTerminalRequest, StartEmbeddedTerminalResponse,
     StartNewEmbeddedTerminalRequest, ThreadSummaryPayload,
     WriteEmbeddedTerminalInputRequest,
 };
 use crate::provider_id::parse_provider_id;
-use crate::{terminal, threads};
+use crate::{provider_health, terminal, threads};
 
 #[tauri::command]
 pub async fn list_threads(
@@ -20,6 +21,17 @@ pub async fn list_threads(
     tauri::async_runtime::spawn_blocking(move || threads::list_threads(project_path.as_deref()))
         .await
         .map_err(|error| format!("Failed to scan thread list: {error}"))?
+}
+
+#[tauri::command]
+pub async fn list_provider_install_statuses(
+    project_path: Option<String>,
+) -> Result<Vec<ProviderInstallStatusPayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        provider_health::list_provider_install_statuses(project_path.as_deref())
+    })
+    .await
+    .map_err(|error| format!("Failed to load provider install statuses: {error}"))?
 }
 
 

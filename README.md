@@ -37,6 +37,7 @@ AgentDock helps you inspect and resume agent-native threads from one desktop wor
 - Thread records include `title` and optional `lastMessagePreview`.
 - Sidebar item text prefers `title`; if empty, it falls back to `lastMessagePreview`.
 - Header title displays selected thread `title`.
+- Create New Thread dialog checks per-agent installation status and shows install guidance when a CLI is missing.
 - Thread title strategy in adapters prioritizes agent-official titles, then user-input fallback.
 
 ## Quick Start

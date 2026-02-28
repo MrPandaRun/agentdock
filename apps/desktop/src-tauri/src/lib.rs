@@ -1,6 +1,7 @@
 mod commands;
 mod path_env;
 mod payloads;
+mod provider_health;
 mod provider_id;
 mod terminal;
 mod threads;
@@ -17,6 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::list_threads,
+            commands::list_provider_install_statuses,
             commands::get_claude_thread_runtime_state,
             commands::get_codex_thread_runtime_state,
             commands::get_opencode_thread_runtime_state,

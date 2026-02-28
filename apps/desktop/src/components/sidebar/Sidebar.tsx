@@ -1,10 +1,14 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
+  AlertTriangle,
   Bot,
   Check,
   ChevronRight,
   ChevronUp,
   Code2,
+  ExternalLink,
   Folder,
   FolderSearch,
   Loader2,
@@ -16,7 +20,7 @@ import {
   SquareTerminal,
   Sun,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ThreadFolderGroup,
@@ -31,9 +35,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  isSupportedProvider,
+  providerDisplayName,
+  providerInstallGuideUrl,
+} from "@/lib/provider";
 import { normalizeProjectPath, formatLastActive, threadPreview } from "@/lib/thread";
 import { cn } from "@/lib/utils";
-import type { AppTheme, ThreadProviderId } from "@/types";
+import type { AppTheme, ProviderInstallStatus, ThreadProviderId } from "@/types";
 
 interface AppThemeOption {
   value: AppTheme;
@@ -46,6 +55,13 @@ interface ProviderOption {
   label: string;
   Icon: typeof Sun;
   accentClass: string;
+}
+
+interface ProviderInstallStatusPayload {
+  providerId: string;
+  installed: boolean;
+  healthStatus: string;
+  message?: string | null;
 }
 
 const APP_THEME_OPTIONS: AppThemeOption[] = [
@@ -75,6 +91,14 @@ const THREAD_PROVIDER_OPTIONS: ProviderOption[] = [
   },
 ];
 
+function emptyProviderInstallStatusMap(): Record<ThreadProviderId, ProviderInstallStatus | null> {
+  return {
+    claude_code: null,
+    codex: null,
+    opencode: null,
+  };
+}
+
 function resolvePickedDirectory(
   picked: string | string[] | null,
 ): string | null {
@@ -91,6 +115,38 @@ function resolvePickedDirectory(
 function sanitizeProjectPath(path: string): string {
   const normalized = normalizeProjectPath(path);
   return normalized === "." ? "" : normalized;
+}
+
+function providerStatusLabel(
+  status: ProviderInstallStatus | null,
+  loading: boolean,
+): string {
+  if (loading && !status) {
+    return "Checking...";
+  }
+  if (!status) {
+    return "Unknown";
+  }
+  if (!status.installed) {
+    return "Not Installed";
+  }
+  return status.healthStatus === "degraded" ? "Installed (Setup Needed)" : "Installed";
+}
+
+function providerStatusClass(
+  status: ProviderInstallStatus | null,
+  loading: boolean,
+): string {
+  if (loading && !status) {
+    return "text-muted-foreground";
+  }
+  if (!status || !status.installed) {
+    return "text-destructive";
+  }
+  if (status.healthStatus === "degraded") {
+    return "text-amber-600 dark:text-amber-400";
+  }
+  return "text-emerald-600 dark:text-emerald-400";
 }
 
 export interface SidebarProps {
@@ -142,6 +198,12 @@ export function Sidebar({
   const [didObserveLaunchState, setDidObserveLaunchState] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [createDialogError, setCreateDialogError] = useState<string | null>(null);
+  const [providerInstallStatuses, setProviderInstallStatuses] = useState<
+    Record<ThreadProviderId, ProviderInstallStatus | null>
+  >(emptyProviderInstallStatusMap);
+  const [providerStatusLoading, setProviderStatusLoading] = useState(false);
+  const [providerStatusError, setProviderStatusError] = useState<string | null>(null);
+  const [providerInstallGuideError, setProviderInstallGuideError] = useState<string | null>(null);
 
   const settingsRef = useRef<HTMLDivElement | null>(null);
 
@@ -155,7 +217,15 @@ export function Sidebar({
 
   const selectedPathValue = sanitizeProjectPath(selectedProjectPath);
   const hasSelectedFolderInList = folderKeys.has(selectedPathValue);
-  const canCreate = selectedPathValue.length > 0 && !isCreateBusy;
+  const selectedProviderInstallStatus = providerInstallStatuses[selectedProviderId];
+  const selectedProviderInstalled = selectedProviderInstallStatus?.installed ?? true;
+  const selectedProviderStatusResolved =
+    selectedProviderInstallStatus !== null || !providerStatusLoading;
+  const canCreate =
+    selectedPathValue.length > 0 &&
+    !isCreateBusy &&
+    selectedProviderStatusResolved &&
+    selectedProviderInstalled;
 
   const createStatusText =
     newThreadBindingStatus === "starting"
@@ -166,6 +236,55 @@ export function Sidebar({
 
   const visibleCreateError =
     createDialogError ?? (didAttemptCreate ? error : null);
+
+  const loadProviderInstallStatuses = useCallback(
+    async (projectPath: string) => {
+      setProviderStatusLoading(true);
+      setProviderStatusError(null);
+
+      try {
+        const normalizedProjectPath = sanitizeProjectPath(projectPath);
+        const data = await invoke<ProviderInstallStatusPayload[]>(
+          "list_provider_install_statuses",
+          {
+            projectPath: normalizedProjectPath.length > 0 ? normalizedProjectPath : null,
+          },
+        );
+
+        const nextStatuses = emptyProviderInstallStatusMap();
+        for (const item of data) {
+          if (!isSupportedProvider(item.providerId)) {
+            continue;
+          }
+          nextStatuses[item.providerId] = {
+            providerId: item.providerId,
+            installed: item.installed,
+            healthStatus: item.healthStatus,
+            message: item.message,
+          };
+        }
+        setProviderInstallStatuses(nextStatuses);
+      } catch (statusError) {
+        const message =
+          statusError instanceof Error ? statusError.message : String(statusError);
+        setProviderStatusError(message);
+      } finally {
+        setProviderStatusLoading(false);
+      }
+    },
+    [],
+  );
+
+  const handleOpenInstallGuide = useCallback(async () => {
+    setProviderInstallGuideError(null);
+    try {
+      await openUrl(providerInstallGuideUrl(selectedProviderId));
+    } catch (openError) {
+      const message =
+        openError instanceof Error ? openError.message : String(openError);
+      setProviderInstallGuideError(message);
+    }
+  }, [selectedProviderId]);
 
   useEffect(() => {
     if (!settingsOpen && !themeDialogOpen && !newThreadDialogOpen) {
@@ -300,8 +419,12 @@ export function Sidebar({
     setDidObserveLaunchState(false);
     setPickerError(null);
     setCreateDialogError(null);
+    setProviderInstallStatuses(emptyProviderInstallStatusMap());
+    setProviderStatusError(null);
+    setProviderInstallGuideError(null);
     onClearError();
     setNewThreadDialogOpen(true);
+    void loadProviderInstallStatuses(fallbackProjectPath);
   };
 
   const closeNewThreadDialog = () => {
@@ -327,7 +450,9 @@ export function Sidebar({
       if (!path) {
         return;
       }
-      setSelectedProjectPath(sanitizeProjectPath(path));
+      const sanitizedPath = sanitizeProjectPath(path);
+      setSelectedProjectPath(sanitizedPath);
+      void loadProviderInstallStatuses(sanitizedPath);
     } catch (pickError) {
       const message =
         pickError instanceof Error ? pickError.message : String(pickError);
@@ -554,7 +679,9 @@ export function Sidebar({
                             setSelectedProjectPath(group.key);
                             setPickerError(null);
                             setCreateDialogError(null);
+                            setProviderInstallGuideError(null);
                             onClearError();
+                            void loadProviderInstallStatuses(group.key);
                           }}
                           disabled={isCreateBusy}
                         >
@@ -600,31 +727,106 @@ export function Sidebar({
               </div>
 
               <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  2. Choose Provider
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    2. Choose Provider
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1.5 text-[10px]"
+                    onClick={() => void loadProviderInstallStatuses(selectedPathValue)}
+                    disabled={isCreateBusy || providerStatusLoading}
+                  >
+                    {providerStatusLoading ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1 h-3 w-3" />
+                    )}
+                    Check
+                  </Button>
+                </div>
                 <div className="grid grid-cols-1 gap-1.5">
                   {THREAD_PROVIDER_OPTIONS.map((provider) => {
                     const active = provider.value === selectedProviderId;
+                    const status = providerInstallStatuses[provider.value];
                     return (
                       <Button
                         key={provider.value}
                         type="button"
                         variant={active ? "secondary" : "ghost"}
-                        size="sm"
-                        className="h-9 w-full items-center justify-between px-2 text-xs"
-                        onClick={() => setSelectedProviderId(provider.value)}
+                        size="default"
+                        className="h-auto w-full items-center justify-between px-2 py-1.5 text-xs"
+                        onClick={() => {
+                          setSelectedProviderId(provider.value);
+                          setProviderInstallGuideError(null);
+                        }}
                         disabled={isCreateBusy}
                       >
-                        <span className="inline-flex items-center gap-1.5">
+                        <span className="inline-flex min-w-0 items-center gap-1.5">
                           <provider.Icon className={cn("h-3.5 w-3.5", provider.accentClass)} />
-                          {provider.label}
+                          <span className="truncate">{provider.label}</span>
                         </span>
-                        {active ? <Check className="h-3.5 w-3.5" /> : null}
+                        <span className="inline-flex items-center gap-1.5">
+                          <span
+                            className={cn(
+                              "text-[10px] font-medium",
+                              providerStatusClass(status, providerStatusLoading),
+                            )}
+                          >
+                            {providerStatusLabel(status, providerStatusLoading)}
+                          </span>
+                          {active ? <Check className="h-3.5 w-3.5" /> : null}
+                        </span>
                       </Button>
                     );
                   })}
                 </div>
+
+                {providerStatusError ? (
+                  <p className="text-[11px] text-destructive">
+                    Failed to check provider status: {providerStatusError}
+                  </p>
+                ) : null}
+
+                {selectedProviderInstallStatus && !selectedProviderInstallStatus.installed ? (
+                  <div className="space-y-2 rounded border border-destructive/30 bg-destructive/10 px-2 py-2">
+                    <p className="inline-flex items-center gap-1.5 text-[11px] text-destructive">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      {providerDisplayName(selectedProviderId)} CLI is not installed.
+                    </p>
+                    {selectedProviderInstallStatus.message ? (
+                      <p className="text-[11px] text-destructive/90">
+                        {selectedProviderInstallStatus.message}
+                      </p>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => void handleOpenInstallGuide()}
+                      disabled={isCreateBusy}
+                    >
+                      Install {providerDisplayName(selectedProviderId)}
+                      <ExternalLink className="ml-1.5 h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : null}
+
+                {selectedProviderInstallStatus?.installed &&
+                selectedProviderInstallStatus.healthStatus === "degraded" ? (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    {selectedProviderInstallStatus.message ?? "Provider is installed but setup is incomplete."}
+                  </p>
+                ) : null}
+
+                {providerInstallGuideError ? (
+                  <p className="text-[11px] text-destructive">
+                    Failed to open install guide: {providerInstallGuideError}
+                  </p>
+                ) : null}
               </div>
 
               {createStatusText ? (
@@ -659,7 +861,11 @@ export function Sidebar({
                   {isCreateBusy ? (
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   ) : null}
-                  Create
+                  {!selectedProviderStatusResolved
+                    ? "Checking..."
+                    : selectedProviderInstalled
+                      ? "Create"
+                      : "Install Required"}
                 </Button>
               </div>
             </CardContent>

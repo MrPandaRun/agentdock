@@ -36,3 +36,13 @@ export function isSupportedProvider(value: string): value is ThreadProviderId {
     value === "claude_code" || value === "codex" || value === "opencode"
   );
 }
+
+export function providerInstallGuideUrl(providerId: ThreadProviderId): string {
+  if (providerId === "claude_code") {
+    return "https://docs.anthropic.com/en/docs/claude-code/overview";
+  }
+  if (providerId === "codex") {
+    return "https://platform.openai.com/docs/codex";
+  }
+  return "https://opencode.ai/docs";
+}

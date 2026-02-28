@@ -8,6 +8,13 @@ export interface AgentThreadSummary {
   lastMessagePreview?: string | null;
 }
 
+export interface ProviderInstallStatus {
+  providerId: ThreadProviderId;
+  installed: boolean;
+  healthStatus: "healthy" | "degraded" | "offline" | string;
+  message?: string | null;
+}
+
 
 export type ThreadProviderId = "claude_code" | "codex" | "opencode";
 export type AppTheme = "light" | "dark" | "system";

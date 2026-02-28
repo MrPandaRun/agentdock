@@ -37,6 +37,7 @@ AgentDock 帮助你在同一个桌面工作台中查看并恢复 Agent 原生线
 - 线程数据包含 `title` 和可选的 `lastMessagePreview`。
 - 左侧条目文本优先使用 `title`；为空时回退到 `lastMessagePreview`。
 - Header 标题使用当前选中线程的 `title`。
+- 新建 Thread 弹窗会检查各 Agent CLI 的安装状态，未安装时提供安装引导。
 - 适配器标题策略优先 Agent 官方标题，其次回退到用户输入。
 
 ## Quick Start

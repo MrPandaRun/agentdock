@@ -12,6 +12,15 @@ pub struct ThreadSummaryPayload {
     pub last_message_preview: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInstallStatusPayload {
+    pub provider_id: String,
+    pub installed: bool,
+    pub health_status: String,
+    pub message: Option<String>,
+}
+
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
