@@ -187,3 +187,167 @@ pub struct EmbeddedTerminalExitPayload {
     pub session_id: String,
     pub status_code: Option<i32>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillPayload {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub source: String,
+    pub version: String,
+    pub enabled_json: String,
+    pub compatibility_json: String,
+    pub readme_url: Option<String>,
+    pub repo_owner: Option<String>,
+    pub repo_name: Option<String>,
+    pub repo_branch: Option<String>,
+    pub installed_at: i64,
+}
+
+impl From<agentdock_core::skills::Skill> for SkillPayload {
+    fn from(skill: agentdock_core::skills::Skill) -> Self {
+        SkillPayload {
+            id: skill.id,
+            name: skill.name,
+            description: skill.description,
+            source: skill.source,
+            version: skill.version,
+            enabled_json: skill.enabled_json,
+            compatibility_json: skill.compatibility_json,
+            readme_url: skill.readme_url,
+            repo_owner: skill.repo_owner,
+            repo_name: skill.repo_name,
+            repo_branch: skill.repo_branch,
+            installed_at: skill.installed_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillRepoPayload {
+    pub id: String,
+    pub owner: String,
+    pub name: String,
+    pub branch: String,
+    pub enabled: bool,
+    pub created_at: i64,
+}
+
+impl From<agentdock_core::skills::SkillRepo> for SkillRepoPayload {
+    fn from(repo: agentdock_core::skills::SkillRepo) -> Self {
+        SkillRepoPayload {
+            id: repo.id,
+            owner: repo.owner,
+            name: repo.name,
+            branch: repo.branch,
+            enabled: repo.enabled,
+            created_at: repo.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallSkillFromPathRequest {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallSkillFromGitRequest {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToggleSkillEnabledRequest {
+    pub id: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToggleSkillEnabledForProviderRequest {
+    pub id: String,
+    pub provider: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UninstallSkillRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddSkillRepoRequest {
+    pub owner: String,
+    pub name: String,
+    pub branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveSkillRepoRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallDiscoveredSkillRequest {
+    pub skill: DiscoverableSkillPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoverableSkillPayload {
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub directory: String,
+    pub readme_url: Option<String>,
+    pub repo_owner: String,
+    pub repo_name: String,
+    pub repo_branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoverSkillInstallProgressPayload {
+    pub key: String,
+    pub stage: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSkillPayload {
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub directory: String,
+    pub provider: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportProviderSkillsRequest {
+    pub skill_keys: Vec<String>,
+}
+
+impl From<crate::skills::ProviderSkill> for ProviderSkillPayload {
+    fn from(skill: crate::skills::ProviderSkill) -> Self {
+        Self {
+            key: skill.key,
+            name: skill.name,
+            description: skill.description,
+            directory: skill.directory,
+            provider: skill.provider,
+            path: skill.path,
+        }
+    }
+}

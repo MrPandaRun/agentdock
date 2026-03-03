@@ -47,3 +47,70 @@ export interface AgentRuntimeSettings {
 export type ThreadProviderId = "claude_code" | "codex" | "opencode";
 export type AppTheme = "light" | "dark" | "system";
 export type TerminalTheme = "dark" | "light";
+
+export interface SkillEnabledState {
+  claude_code: boolean;
+  codex: boolean;
+  opencode: boolean;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  description?: string;
+  source: string;
+  version: string;
+  enabledJson: string;
+  compatibilityJson: string;
+  readmeUrl?: string;
+  repoOwner?: string;
+  repoName?: string;
+  repoBranch?: string;
+  installedAt: number;
+}
+
+export interface SkillRepo {
+  id: string;
+  owner: string;
+  name: string;
+  branch: string;
+  enabled: boolean;
+  createdAt: number;
+}
+
+export interface DiscoverableSkill {
+  key: string;
+  name: string;
+  description: string;
+  directory: string;
+  readmeUrl?: string;
+  repoOwner: string;
+  repoName: string;
+  repoBranch: string;
+}
+
+export type DiscoverSkillInstallStage =
+  | "queued"
+  | "downloading"
+  | "extracting"
+  | "parsing_metadata"
+  | "saving_record"
+  | "syncing_files"
+  | "syncing_providers"
+  | "completed"
+  | "failed";
+
+export interface DiscoverSkillInstallProgress {
+  key: string;
+  stage: DiscoverSkillInstallStage | string;
+  message: string;
+}
+
+export interface ProviderSkill {
+  key: string;
+  name: string;
+  description: string;
+  directory: string;
+  provider: string;
+  path: string;
+}

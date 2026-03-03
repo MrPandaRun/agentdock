@@ -1,5 +1,6 @@
 import { Bot, Code2, SquareTerminal } from "lucide-react";
 
+import { threadKey } from "@/lib/thread";
 import { cn } from "@/lib/utils";
 
 export interface ThreadListThreadItem {
@@ -13,7 +14,7 @@ export interface ThreadListThreadItem {
 interface ThreadListItemProps<T extends ThreadListThreadItem> {
   thread: T;
   isActive: boolean;
-  onSelectThread: (threadId: string) => void;
+  onSelectThread: (threadKey: string) => void;
   formatLastActive: (raw: string) => string;
   getPreview: (thread: T) => string;
 }
@@ -37,7 +38,7 @@ export function ThreadListItem<T extends ThreadListThreadItem>({
           "hover:bg-accent/60",
           isActive && "bg-primary/10 text-foreground hover:bg-primary/10",
         )}
-        onClick={() => onSelectThread(thread.id)}
+        onClick={() => onSelectThread(threadKey(thread))}
       >
         <div className="w-full min-w-0 space-y-0.5">
           <div className="flex min-w-0 items-start gap-1.5">

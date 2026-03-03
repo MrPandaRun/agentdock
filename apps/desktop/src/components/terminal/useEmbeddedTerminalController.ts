@@ -101,7 +101,7 @@ export function useEmbeddedTerminalController({
   const launchRequestProfileName = launchRequest?.profileName ?? null;
   const launchRequestLaunchEnv = launchRequest?.launchEnv;
   const launchRequestProjectPath = launchRequest?.projectPath ?? null;
-  const launchRequestKnownThreadIds = launchRequest?.knownThreadIds ?? null;
+  const launchRequestKnownThreadKeys = launchRequest?.knownThreadKeys ?? null;
 
   const threadKey = useMemo(() => {
     if (!threadId || !threadProviderId || !threadProfileName || !threadProjectPath) {
@@ -116,7 +116,7 @@ export function useEmbeddedTerminalController({
       launchRequestProviderId &&
       launchRequestProfileName &&
       launchRequestProjectPath &&
-      launchRequestKnownThreadIds
+      launchRequestKnownThreadKeys
     ) {
       return {
         mode: "new",
@@ -126,7 +126,7 @@ export function useEmbeddedTerminalController({
         profileName: launchRequestProfileName,
         launchEnv: launchRequestLaunchEnv,
         projectPath: launchRequestProjectPath,
-        knownThreadIds: launchRequestKnownThreadIds,
+        knownThreadKeys: launchRequestKnownThreadKeys,
       };
     }
     if (!threadId || !threadProviderId || !threadProfileName || !threadProjectPath || !threadKey) {
@@ -143,7 +143,7 @@ export function useEmbeddedTerminalController({
     };
   }, [
     launchRequestId,
-    launchRequestKnownThreadIds,
+    launchRequestKnownThreadKeys,
     launchRequestLaunchEnv,
     launchRequestProfileName,
     launchRequestProjectPath,

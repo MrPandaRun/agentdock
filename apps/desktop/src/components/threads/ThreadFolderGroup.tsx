@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { threadKey } from "@/lib/thread";
 import { cn } from "@/lib/utils";
 
 import { ThreadListItem, type ThreadListThreadItem } from "./ThreadListItem";
@@ -25,8 +26,8 @@ type ThreadProviderId = "claude_code" | "codex" | "opencode";
 interface ThreadFolderGroupProps<T extends ThreadListThreadItem> {
   group: ThreadFolderGroupItem<T>;
   isActiveFolder: boolean;
-  selectedThreadId: string | null;
-  onSelectThread: (threadId: string) => void;
+  selectedThreadKey: string | null;
+  onSelectThread: (threadKey: string) => void;
   onCreateThread: (projectPath: string, providerId: ThreadProviderId) => Promise<void>;
   isCreatingThread: boolean;
   formatLastActive: (raw: string) => string;
@@ -36,7 +37,7 @@ interface ThreadFolderGroupProps<T extends ThreadListThreadItem> {
 export function ThreadFolderGroup<T extends ThreadListThreadItem>({
   group,
   isActiveFolder,
-  selectedThreadId,
+  selectedThreadKey,
   onSelectThread,
   onCreateThread,
   isCreatingThread,
@@ -159,9 +160,9 @@ export function ThreadFolderGroup<T extends ThreadListThreadItem>({
           <ul className="box-border w-full space-y-0.5 pl-3">
             {group.threads.map((thread) => (
               <ThreadListItem
-                key={thread.id}
+                key={threadKey(thread)}
                 thread={thread}
-                isActive={thread.id === selectedThreadId}
+                isActive={threadKey(thread) === selectedThreadKey}
                 onSelectThread={onSelectThread}
                 formatLastActive={formatLastActive}
                 getPreview={getPreview}

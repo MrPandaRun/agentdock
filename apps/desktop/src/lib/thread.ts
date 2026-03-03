@@ -60,23 +60,32 @@ export function threadPreview(
   return "Untitled thread";
 }
 
-export function resolveSelectedThreadId(
+export function threadKey(
+  thread: Pick<AgentThreadSummary, "providerId" | "id">,
+): string {
+  return `${thread.providerId}:${thread.id}`;
+}
+
+export function resolveSelectedThreadKey(
   threads: AgentThreadSummary[],
   current: string | null,
 ): string | null {
   const visibleThreads = threads.filter(
     (thread) => normalizeProjectPath(thread.projectPath) !== ".",
   );
-  if (current && visibleThreads.some((thread) => thread.id === current)) {
+  if (current && visibleThreads.some((thread) => threadKey(thread) === current)) {
     return current;
   }
-  return visibleThreads[0]?.id ?? threads[0]?.id ?? null;
+  if (visibleThreads.length > 0) {
+    return threadKey(visibleThreads[0]);
+  }
+  return threads[0] ? threadKey(threads[0]) : null;
 }
 
 export interface PickCreatedThreadLaunch {
   providerId: string;
   projectPath: string;
-  knownThreadIds: string[];
+  knownThreadKeys: string[];
 }
 
 export function pickCreatedThread(
@@ -93,8 +102,10 @@ export function pickCreatedThread(
     return null;
   }
 
-  const knownIds = new Set(launch.knownThreadIds);
-  const freshMatches = matches.filter((thread) => !knownIds.has(thread.id));
+  const knownThreadKeys = new Set(launch.knownThreadKeys);
+  const freshMatches = matches.filter(
+    (thread) => !knownThreadKeys.has(threadKey(thread)),
+  );
   if (freshMatches.length === 0) {
     return null;
   }

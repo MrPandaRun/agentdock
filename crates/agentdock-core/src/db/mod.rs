@@ -3,8 +3,10 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 use thiserror::Error;
 
-const MIGRATIONS: &[(&str, &str)] =
-    &[("0001_init", include_str!("../../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("0001_init", include_str!("../../migrations/0001_init.sql")),
+    ("0002_skills_enhanced", include_str!("../../migrations/0002_skills_enhanced.sql")),
+];
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -108,7 +110,7 @@ mod tests {
                 row.get(0)
             })
             .expect("count query should succeed");
-        assert_eq!(applied, 1);
+        assert_eq!(applied, 2);
     }
 
     #[test]

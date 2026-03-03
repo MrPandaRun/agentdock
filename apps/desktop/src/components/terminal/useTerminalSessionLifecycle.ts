@@ -207,7 +207,7 @@ export function useTerminalSessionLifecycle({
               profileName: launchTarget.profileName,
               launchEnv: launchTarget.launchEnv,
               projectPath: launchTarget.projectPath,
-              knownThreadIds: launchTarget.knownThreadIds,
+              knownThreadKeys: launchTarget.knownThreadKeys,
             },
             started,
           });
