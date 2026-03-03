@@ -4,7 +4,7 @@ use provider_contract::{
     ResumeThreadRequest, ResumeThreadResult, ThreadSummary,
 };
 use serde_json::Value;
-use std::cmp::Reverse;
+use std::cmp::{Ordering, Reverse};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
@@ -23,6 +23,13 @@ struct ThreadRecord {
     summary: ThreadSummary,
     source_path: PathBuf,
     sort_key: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SessionIdStats {
+    count: usize,
+    latest_timestamp_ms: i64,
+    last_seen_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,8 +180,7 @@ impl ClaudeAdapter {
             }
         }
 
-        records.sort_by_key(|record| Reverse(record.sort_key));
-        records
+        dedupe_thread_records(records)
     }
 
     fn find_thread_record(&self, thread_id: &str) -> ProviderResult<ThreadRecord> {
@@ -466,24 +472,37 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
     let file = File::open(path).ok()?;
     let reader = BufReader::new(file);
 
-    let mut session_id: Option<String> = None;
+    let mut session_id_stats: HashMap<String, SessionIdStats> = HashMap::new();
     let mut project_path: Option<String> = None;
     let mut first_user_title: Option<String> = None;
     let mut created_at: Option<String> = None;
     let mut last_active_at: Option<String> = None;
     let mut sort_key = file_last_modified_ms(path).unwrap_or(0);
 
-    for line in reader.lines().map_while(Result::ok) {
+    for (line_index, line) in reader.lines().map_while(Result::ok).enumerate() {
         let parsed: Value = match serde_json::from_str(&line) {
             Ok(value) => value,
             Err(_) => continue,
         };
 
-        if session_id.is_none() {
-            session_id = parsed
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .map(ToString::to_string);
+        let timestamp = extract_timestamp(&parsed);
+        let timestamp_ms = timestamp
+            .as_ref()
+            .map(|(_, value)| *value)
+            .unwrap_or(0);
+
+        if let Some(session_id) = parsed
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .and_then(non_empty_trimmed)
+            .map(ToString::to_string)
+        {
+            let stats = session_id_stats.entry(session_id).or_default();
+            stats.count += 1;
+            stats.last_seen_index = line_index;
+            if timestamp_ms > 0 {
+                stats.latest_timestamp_ms = stats.latest_timestamp_ms.max(timestamp_ms);
+            }
         }
 
         if project_path.is_none() {
@@ -509,7 +528,7 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
             }
         }
 
-        if let Some((timestamp_str, timestamp_ms)) = extract_timestamp(&parsed) {
+        if let Some((timestamp_str, timestamp_ms)) = timestamp {
             if created_at.is_none() {
                 created_at = Some(timestamp_str.clone());
             }
@@ -520,11 +539,7 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
         }
     }
 
-    let session_id = session_id.or_else(|| {
-        path.file_stem()
-            .and_then(|stem| stem.to_str())
-            .map(ToString::to_string)
-    })?;
+    let session_id = resolve_canonical_session_id(path, &session_id_stats)?;
 
     let project_path = project_path.unwrap_or_else(|| ".".to_string());
     let title = official_titles
@@ -553,6 +568,81 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
         source_path: path.to_path_buf(),
         sort_key,
     })
+}
+
+fn resolve_canonical_session_id(
+    path: &Path,
+    session_id_stats: &HashMap<String, SessionIdStats>,
+) -> Option<String> {
+    let file_stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(non_empty_trimmed)
+        .map(ToString::to_string);
+
+    if let Some(stem) = file_stem.as_ref() {
+        if session_id_stats.contains_key(stem) {
+            return Some(stem.clone());
+        }
+    }
+
+    if let Some((session_id, _)) = session_id_stats.iter().max_by(|(left_id, left_stats), (right_id, right_stats)| {
+        compare_session_id_stats(left_stats, right_stats)
+            .then_with(|| right_id.cmp(left_id))
+    }) {
+        return Some(session_id.clone());
+    }
+
+    file_stem
+}
+
+fn compare_session_id_stats(left: &SessionIdStats, right: &SessionIdStats) -> Ordering {
+    left.count
+        .cmp(&right.count)
+        .then(left.latest_timestamp_ms.cmp(&right.latest_timestamp_ms))
+        .then(left.last_seen_index.cmp(&right.last_seen_index))
+}
+
+fn dedupe_thread_records(records: Vec<ThreadRecord>) -> Vec<ThreadRecord> {
+    let mut deduped: HashMap<String, ThreadRecord> = HashMap::new();
+
+    for record in records {
+        let key = record.summary.id.clone();
+        match deduped.get(&key) {
+            Some(existing) => {
+                if should_replace_thread_record(existing, &record) {
+                    deduped.insert(key, record);
+                }
+            }
+            None => {
+                deduped.insert(key, record);
+            }
+        }
+    }
+
+    let mut values: Vec<ThreadRecord> = deduped.into_values().collect();
+    sort_thread_records(&mut values);
+    values
+}
+
+fn should_replace_thread_record(existing: &ThreadRecord, candidate: &ThreadRecord) -> bool {
+    if candidate.sort_key != existing.sort_key {
+        return candidate.sort_key > existing.sort_key;
+    }
+
+    let existing_path = existing.source_path.to_string_lossy();
+    let candidate_path = candidate.source_path.to_string_lossy();
+    candidate_path < existing_path
+}
+
+fn sort_thread_records(records: &mut [ThreadRecord]) {
+    records.sort_by(|left, right| {
+        right
+            .sort_key
+            .cmp(&left.sort_key)
+            .then_with(|| left.summary.id.cmp(&right.summary.id))
+            .then_with(|| left.source_path.cmp(&right.source_path))
+    });
 }
 
 fn extract_timestamp(value: &Value) -> Option<(String, i64)> {
@@ -1029,6 +1119,62 @@ mod tests {
         assert_eq!(threads[0].provider_id, ProviderId::ClaudeCode);
         assert_eq!(threads[0].project_path, "/workspace/a");
         assert_eq!(threads[0].title, "Implement provider adapter");
+    }
+
+    #[test]
+    fn list_threads_prefers_canonical_session_id_when_file_contains_mixed_session_ids() {
+        let config_dir = test_temp_dir("mixed-session-ids").join(".claude");
+        let session_file = config_dir
+            .join("projects")
+            .join("workspace-mixed")
+            .join("session-majority.jsonl");
+
+        write_lines(
+            &session_file,
+            &[
+                r#"{"sessionId":"session-wrong","cwd":"/workspace/mixed","timestamp":"1700000000000","isMeta":true}"#,
+                r#"{"sessionId":"session-majority","cwd":"/workspace/mixed","timestamp":"1700000000100","message":{"role":"user","content":"Fix duplicate thread rendering"}}"#,
+                r#"{"sessionId":"session-majority","cwd":"/workspace/mixed","timestamp":"1700000000200","message":{"role":"assistant","content":"Working..."}}"#,
+            ],
+        );
+
+        let adapter = ClaudeAdapter::new().with_config_dir(&config_dir);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "session-majority");
+    }
+
+    #[test]
+    fn list_threads_dedupes_duplicate_session_ids_and_keeps_latest_record() {
+        let config_dir = test_temp_dir("dedupe-session-ids").join(".claude");
+
+        write_lines(
+            &config_dir.join("projects/workspace-old/session-shared.jsonl"),
+            &[
+                r#"{"sessionId":"session-shared","cwd":"/workspace/old","timestamp":"1700000000000","isMeta":true}"#,
+                r#"{"sessionId":"session-shared","cwd":"/workspace/old","timestamp":"1700000000100","message":{"role":"user","content":"Old version"}} "#,
+            ],
+        );
+        write_lines(
+            &config_dir.join("projects/workspace-new/session-shared-copy.jsonl"),
+            &[
+                r#"{"sessionId":"session-shared","cwd":"/workspace/new","timestamp":"1700000000500","isMeta":true}"#,
+                r#"{"sessionId":"session-shared","cwd":"/workspace/new","timestamp":"1700000000600","message":{"role":"user","content":"Latest version"}} "#,
+            ],
+        );
+
+        let adapter = ClaudeAdapter::new().with_config_dir(&config_dir);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "session-shared");
+        assert_eq!(threads[0].project_path, "/workspace/new");
+        assert_eq!(threads[0].title, "Latest version");
     }
 
     #[test]

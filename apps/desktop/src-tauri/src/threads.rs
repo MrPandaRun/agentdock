@@ -1,6 +1,7 @@
 use provider_claude::{ClaudeAdapter, ClaudeThreadOverview, ClaudeThreadRuntimeState};
 use provider_codex::{CodexAdapter, CodexThreadOverview, CodexThreadRuntimeState};
 use provider_opencode::{OpenCodeAdapter, OpenCodeThreadOverview, OpenCodeThreadRuntimeState};
+use std::collections::HashMap;
 
 use crate::payloads::{
     ClaudeThreadRuntimeStatePayload, CodexThreadRuntimeStatePayload,
@@ -42,8 +43,8 @@ pub fn list_threads(project_path: Option<&str>) -> Result<Vec<ThreadSummaryPaylo
             .into_iter()
             .map(map_opencode_thread_overview),
     );
-    threads
-        .sort_by_key(|thread| std::cmp::Reverse(sortable_last_active_at(&thread.last_active_at)));
+    threads = dedupe_thread_summaries(threads);
+    sort_thread_summaries(&mut threads);
 
     Ok(threads)
 }
@@ -162,5 +163,89 @@ fn sortable_last_active_at(raw: &str) -> i64 {
         parsed * 1000
     } else {
         parsed
+    }
+}
+
+fn dedupe_thread_summaries(threads: Vec<ThreadSummaryPayload>) -> Vec<ThreadSummaryPayload> {
+    let mut deduped: HashMap<(String, String), ThreadSummaryPayload> = HashMap::new();
+
+    for thread in threads {
+        let key = (thread.provider_id.clone(), thread.id.clone());
+        match deduped.get(&key) {
+            Some(existing) => {
+                if should_replace_thread_summary(existing, &thread) {
+                    deduped.insert(key, thread);
+                }
+            }
+            None => {
+                deduped.insert(key, thread);
+            }
+        }
+    }
+
+    deduped.into_values().collect()
+}
+
+fn should_replace_thread_summary(
+    existing: &ThreadSummaryPayload,
+    candidate: &ThreadSummaryPayload,
+) -> bool {
+    let existing_last_active = sortable_last_active_at(&existing.last_active_at);
+    let candidate_last_active = sortable_last_active_at(&candidate.last_active_at);
+    if candidate_last_active != existing_last_active {
+        return candidate_last_active > existing_last_active;
+    }
+
+    candidate.project_path < existing.project_path
+}
+
+fn sort_thread_summaries(threads: &mut [ThreadSummaryPayload]) {
+    threads.sort_by(|left, right| {
+        sortable_last_active_at(&right.last_active_at)
+            .cmp(&sortable_last_active_at(&left.last_active_at))
+            .then_with(|| left.provider_id.cmp(&right.provider_id))
+            .then_with(|| left.id.cmp(&right.id))
+            .then_with(|| left.project_path.cmp(&right.project_path))
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_thread(
+        provider_id: &str,
+        id: &str,
+        last_active_at: &str,
+        project_path: &str,
+    ) -> ThreadSummaryPayload {
+        ThreadSummaryPayload {
+            id: id.to_string(),
+            provider_id: provider_id.to_string(),
+            project_path: project_path.to_string(),
+            title: format!("{provider_id}-{id}"),
+            tags: vec![provider_id.to_string()],
+            last_active_at: last_active_at.to_string(),
+            last_message_preview: None,
+        }
+    }
+
+    #[test]
+    fn dedupe_thread_summaries_keeps_latest_record_for_same_provider_and_id() {
+        let threads = vec![
+            build_thread("claude_code", "session-1", "1700000000000", "/workspace/old"),
+            build_thread("claude_code", "session-1", "1700000005000", "/workspace/new"),
+            build_thread("codex", "session-1", "1700000001000", "/workspace/codex"),
+        ];
+
+        let mut deduped = dedupe_thread_summaries(threads);
+        sort_thread_summaries(&mut deduped);
+
+        assert_eq!(deduped.len(), 2);
+        assert_eq!(deduped[0].provider_id, "claude_code");
+        assert_eq!(deduped[0].id, "session-1");
+        assert_eq!(deduped[0].project_path, "/workspace/new");
+        assert_eq!(deduped[1].provider_id, "codex");
+        assert_eq!(deduped[1].id, "session-1");
     }
 }

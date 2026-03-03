@@ -12,7 +12,7 @@ export interface EmbeddedTerminalNewThreadLaunch {
   profileName: string;
   launchEnv?: Record<string, string>;
   projectPath: string;
-  knownThreadIds: string[];
+  knownThreadKeys: string[];
 }
 
 export interface EmbeddedTerminalLaunchSettledPayload {
@@ -72,5 +72,5 @@ export type SessionLaunchTarget =
       profileName: string;
       launchEnv?: Record<string, string>;
       projectPath: string;
-      knownThreadIds: string[];
+      knownThreadKeys: string[];
     };

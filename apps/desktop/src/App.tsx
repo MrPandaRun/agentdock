@@ -585,7 +585,7 @@ function App() {
   } = useSidebar();
 
   const {
-    selectedThreadId,
+    selectedThreadKey,
     selectedThread,
     folderGroups,
     selectedFolderKey,
@@ -695,7 +695,7 @@ function App() {
           sidebarCollapsed={sidebarCollapsed}
           folderGroups={folderGroups}
           selectedFolderKey={selectedFolderKey}
-          selectedThreadId={newThreadLaunch ? null : selectedThreadId}
+          selectedThreadKey={newThreadLaunch ? null : selectedThreadKey}
           loadingThreads={loadingThreads}
           creatingThreadFolderKey={creatingThreadFolderKey}
           error={error}

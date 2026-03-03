@@ -1304,7 +1304,7 @@ export interface SidebarProps {
   sidebarCollapsed: boolean;
   folderGroups: ThreadFolderGroupItem[];
   selectedFolderKey: string | null;
-  selectedThreadId: string | null;
+  selectedThreadKey: string | null;
   loadingThreads: boolean;
   creatingThreadFolderKey: string | null;
   error: string | null;
@@ -1316,7 +1316,7 @@ export interface SidebarProps {
   providerProfiles: ProviderProfileMap;
   agentRuntimeSettings: AgentRuntimeSettings;
   onLoadThreads: () => void;
-  onSelectThread: (threadId: string) => void;
+  onSelectThread: (threadKey: string) => void;
   onCreateThread: (projectPath: string, providerId: ThreadProviderId) => Promise<void>;
   onAgentRuntimeSettingsChange: (selection: AgentRuntimeSettings) => string | null;
   onAppThemeChange: (theme: AppTheme) => void;
@@ -1327,7 +1327,7 @@ export function Sidebar({
   sidebarCollapsed,
   folderGroups,
   selectedFolderKey,
-  selectedThreadId,
+  selectedThreadKey,
   loadingThreads,
   creatingThreadFolderKey,
   error,
@@ -2117,7 +2117,7 @@ export function Sidebar({
                       key={group.key}
                       group={group}
                       isActiveFolder={group.key === selectedFolderKey}
-                      selectedThreadId={selectedThreadId}
+                      selectedThreadKey={selectedThreadKey}
                       onSelectThread={onSelectThread}
                       onCreateThread={onCreateThread}
                       isCreatingThread={creatingThreadFolderKey === group.key}

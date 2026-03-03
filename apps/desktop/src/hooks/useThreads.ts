@@ -9,8 +9,9 @@ import {
   folderNameFromProjectPath,
   normalizeProjectPath,
   pickCreatedThread,
-  resolveSelectedThreadId,
+  resolveSelectedThreadKey,
   sortableTimestamp,
+  threadKey,
 } from "@/lib/thread";
 
 export interface ThreadFolderGroupItem<T extends AgentThreadSummary = AgentThreadSummary> {
@@ -25,7 +26,7 @@ export interface EmbeddedTerminalNewThreadLaunch {
   profileName: string;
   launchEnv?: Record<string, string>;
   projectPath: string;
-  knownThreadIds: string[];
+  knownThreadKeys: string[];
 }
 
 export interface EmbeddedTerminalLaunchSettledPayload {
@@ -37,7 +38,7 @@ export type NewThreadBindingStatus = "starting" | "awaiting_discovery";
 
 export interface UseThreadsResult {
   threads: AgentThreadSummary[];
-  selectedThreadId: string | null;
+  selectedThreadKey: string | null;
   selectedThread: AgentThreadSummary | null;
   folderGroups: ThreadFolderGroupItem[];
   selectedFolderKey: string | null;
@@ -48,7 +49,7 @@ export interface UseThreadsResult {
   newThreadBindingStatus: NewThreadBindingStatus | null;
   setError: (error: string | null) => void;
   loadThreads: () => Promise<void>;
-  handleSelectThread: (threadId: string) => void;
+  handleSelectThread: (threadKey: string) => void;
   handleCreateThreadInFolder: (
     projectPath: string,
     providerId: ThreadProviderId,
@@ -61,7 +62,7 @@ export interface UseThreadsResult {
 
 export function useThreads(): UseThreadsResult {
   const [threads, setThreads] = useState<AgentThreadSummary[]>([]);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [selectedThreadKey, setSelectedThreadKey] = useState<string | null>(null);
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creatingThreadFolderKey, setCreatingThreadFolderKey] = useState<string | null>(null);
@@ -73,8 +74,8 @@ export function useThreads(): UseThreadsResult {
   const pendingNewThreadLaunchIdRef = useRef<number | null>(null);
 
   const selectedThread = useMemo(
-    () => threads.find((thread) => thread.id === selectedThreadId) ?? null,
-    [threads, selectedThreadId],
+    () => threads.find((thread) => threadKey(thread) === selectedThreadKey) ?? null,
+    [threads, selectedThreadKey],
   );
 
   const folderGroups = useMemo<ThreadFolderGroupItem[]>(() => {
@@ -122,7 +123,7 @@ export function useThreads(): UseThreadsResult {
     try {
       const data = await invoke<AgentThreadSummary[]>("list_threads");
       setThreads(data);
-      setSelectedThreadId((current) => resolveSelectedThreadId(data, current));
+      setSelectedThreadKey((current) => resolveSelectedThreadKey(data, current));
     } catch (loadError) {
       const message =
         loadError instanceof Error ? loadError.message : String(loadError);
@@ -166,7 +167,7 @@ export function useThreads(): UseThreadsResult {
         return false;
       }
 
-      setSelectedThreadId(createdThread.id);
+      setSelectedThreadKey(threadKey(createdThread));
       clearPendingNewThreadLaunch(launch);
       return true;
     },
@@ -191,18 +192,18 @@ export function useThreads(): UseThreadsResult {
         profileName,
         launchEnv,
         projectPath,
-        knownThreadIds: threads.map((thread) => thread.id),
+        knownThreadKeys: threads.map((thread) => threadKey(thread)),
       });
     },
     [threads],
   );
 
-  const handleSelectThread = useCallback((threadId: string) => {
+  const handleSelectThread = useCallback((nextThreadKey: string) => {
     pendingNewThreadLaunchIdRef.current = null;
     setNewThreadBindingStatus(null);
     setCreatingThreadFolderKey(null);
     setNewThreadLaunch(null);
-    setSelectedThreadId(threadId);
+    setSelectedThreadKey(nextThreadKey);
   }, []);
 
   const handleNewThreadLaunchSettled = useCallback(
@@ -306,7 +307,7 @@ export function useThreads(): UseThreadsResult {
 
   return {
     threads,
-    selectedThreadId,
+    selectedThreadKey,
     selectedThread,
     folderGroups,
     selectedFolderKey,

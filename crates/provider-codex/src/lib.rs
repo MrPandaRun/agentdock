@@ -4,7 +4,7 @@ use provider_contract::{
     ResumeThreadRequest, ResumeThreadResult, ThreadSummary,
 };
 use serde_json::Value;
-use std::cmp::Reverse;
+use std::cmp::{Ordering, Reverse};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
@@ -22,6 +22,13 @@ struct ThreadRecord {
     summary: ThreadSummary,
     source_path: PathBuf,
     sort_key: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SessionIdStats {
+    count: usize,
+    latest_timestamp_ms: i64,
+    last_seen_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,8 +147,7 @@ impl CodexAdapter {
         records.retain(|record| {
             !is_codex_child_agent_project_path(&record.summary.project_path, &codex_home_dir)
         });
-        records.sort_by_key(|record| Reverse(record.sort_key));
-        records
+        dedupe_thread_records(records)
     }
 
     fn find_thread_record(&self, thread_id: &str) -> ProviderResult<ThreadRecord> {
@@ -340,26 +346,35 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
     let file = File::open(path).ok()?;
     let reader = BufReader::new(file);
 
-    let mut session_id: Option<String> = None;
+    let mut session_id_stats: HashMap<String, SessionIdStats> = HashMap::new();
     let mut project_path: Option<String> = None;
     let mut is_subagent_session = false;
     let mut first_user_title: Option<String> = None;
     let mut last_active_at: Option<String> = None;
     let mut sort_key = file_last_modified_ms(path).unwrap_or(0);
 
-    for line in reader.lines().map_while(Result::ok) {
+    for (line_index, line) in reader.lines().map_while(Result::ok).enumerate() {
         let parsed: Value = match serde_json::from_str(&line) {
             Ok(value) => value,
             Err(_) => continue,
         };
 
+        let timestamp_ms = parse_timestamp_ms(parsed.get("timestamp")).unwrap_or(0);
+
         if parsed.get("type").and_then(Value::as_str) == Some("session_meta") {
             if let Some(payload) = parsed.get("payload") {
-                if session_id.is_none() {
-                    session_id = payload
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .map(ToString::to_string);
+                if let Some(session_id) = payload
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .and_then(non_empty_trimmed)
+                    .map(ToString::to_string)
+                {
+                    let stats = session_id_stats.entry(session_id).or_default();
+                    stats.count += 1;
+                    stats.last_seen_index = line_index;
+                    if timestamp_ms > 0 {
+                        stats.latest_timestamp_ms = stats.latest_timestamp_ms.max(timestamp_ms);
+                    }
                 }
                 if project_path.is_none() {
                     project_path = payload
@@ -409,17 +424,13 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
             }
         }
 
-        if let Some(timestamp_ms) = parse_timestamp_ms(parsed.get("timestamp")) {
+        if timestamp_ms > 0 {
             last_active_at = Some(timestamp_ms.to_string());
             sort_key = sort_key.max(timestamp_ms);
         }
     }
 
-    let session_id = session_id.or_else(|| {
-        path.file_stem()
-            .and_then(|stem| stem.to_str())
-            .map(ToString::to_string)
-    })?;
+    let session_id = resolve_canonical_session_id(path, &session_id_stats)?;
     if is_subagent_session {
         return None;
     }
@@ -448,6 +459,81 @@ fn parse_thread_file(path: &Path, official_titles: &HashMap<String, String>) -> 
         source_path: path.to_path_buf(),
         sort_key,
     })
+}
+
+fn resolve_canonical_session_id(
+    path: &Path,
+    session_id_stats: &HashMap<String, SessionIdStats>,
+) -> Option<String> {
+    let file_stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(non_empty_trimmed)
+        .map(ToString::to_string);
+
+    if let Some(stem) = file_stem.as_ref() {
+        if session_id_stats.contains_key(stem) {
+            return Some(stem.clone());
+        }
+    }
+
+    if let Some((session_id, _)) = session_id_stats.iter().max_by(|(left_id, left_stats), (right_id, right_stats)| {
+        compare_session_id_stats(left_stats, right_stats)
+            .then_with(|| right_id.cmp(left_id))
+    }) {
+        return Some(session_id.clone());
+    }
+
+    file_stem
+}
+
+fn compare_session_id_stats(left: &SessionIdStats, right: &SessionIdStats) -> Ordering {
+    left.count
+        .cmp(&right.count)
+        .then(left.latest_timestamp_ms.cmp(&right.latest_timestamp_ms))
+        .then(left.last_seen_index.cmp(&right.last_seen_index))
+}
+
+fn dedupe_thread_records(records: Vec<ThreadRecord>) -> Vec<ThreadRecord> {
+    let mut deduped: HashMap<String, ThreadRecord> = HashMap::new();
+
+    for record in records {
+        let key = record.summary.id.clone();
+        match deduped.get(&key) {
+            Some(existing) => {
+                if should_replace_thread_record(existing, &record) {
+                    deduped.insert(key, record);
+                }
+            }
+            None => {
+                deduped.insert(key, record);
+            }
+        }
+    }
+
+    let mut values: Vec<ThreadRecord> = deduped.into_values().collect();
+    sort_thread_records(&mut values);
+    values
+}
+
+fn should_replace_thread_record(existing: &ThreadRecord, candidate: &ThreadRecord) -> bool {
+    if candidate.sort_key != existing.sort_key {
+        return candidate.sort_key > existing.sort_key;
+    }
+
+    let existing_path = existing.source_path.to_string_lossy();
+    let candidate_path = candidate.source_path.to_string_lossy();
+    candidate_path < existing_path
+}
+
+fn sort_thread_records(records: &mut [ThreadRecord]) {
+    records.sort_by(|left, right| {
+        right
+            .sort_key
+            .cmp(&left.sort_key)
+            .then_with(|| left.summary.id.cmp(&right.summary.id))
+            .then_with(|| left.source_path.cmp(&right.source_path))
+    });
 }
 
 fn parse_timestamp_ms(value: Option<&Value>) -> Option<i64> {
@@ -843,6 +929,64 @@ mod tests {
         assert_eq!(threads[0].provider_id, ProviderId::Codex);
         assert_eq!(threads[0].project_path, "/workspace/a");
         assert_eq!(threads[0].title, "a");
+    }
+
+    #[test]
+    fn list_threads_prefers_canonical_session_id_when_file_contains_mixed_session_ids() {
+        let codex_home = test_temp_dir("mixed-session-ids").join(".codex");
+        let session_file = codex_home
+            .join("sessions")
+            .join("2026")
+            .join("02")
+            .join("12")
+            .join("codex-majority.jsonl");
+
+        write_lines(
+            &session_file,
+            &[
+                r#"{"timestamp":"2026-02-12T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-wrong","cwd":"/workspace/mixed"}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:01.000Z","type":"session_meta","payload":{"id":"codex-majority","cwd":"/workspace/mixed"}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix duplicate thread rendering"}]}}"#,
+            ],
+        );
+
+        let adapter = CodexAdapter::new().with_home_dir(&codex_home);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "codex-majority");
+    }
+
+    #[test]
+    fn list_threads_dedupes_duplicate_session_ids_and_keeps_latest_record() {
+        let codex_home = test_temp_dir("dedupe-session-ids").join(".codex");
+
+        write_lines(
+            &codex_home.join("sessions/2026/02/12/session-shared.jsonl"),
+            &[
+                r#"{"timestamp":"2026-02-12T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-shared","cwd":"/workspace/old"}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Old version"}]}}"#,
+            ],
+        );
+        write_lines(
+            &codex_home.join("sessions/2026/02/12/session-shared-copy.jsonl"),
+            &[
+                r#"{"timestamp":"2026-02-12T10:00:05.000Z","type":"session_meta","payload":{"id":"codex-shared","cwd":"/workspace/new"}}"#,
+                r#"{"timestamp":"2026-02-12T10:00:06.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Latest version"}]}}"#,
+            ],
+        );
+
+        let adapter = CodexAdapter::new().with_home_dir(&codex_home);
+        let threads = adapter
+            .list_threads(None)
+            .expect("list_threads should work");
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "codex-shared");
+        assert_eq!(threads[0].project_path, "/workspace/new");
+        assert_eq!(threads[0].title, "Latest version");
     }
 
     #[test]
