@@ -1,6 +1,6 @@
 [package]
 name = "agentdock-desktop"
-version = "0.1.3"
+version = "1.0.0"
 description = "AgentDock desktop shell"
 authors = ["AgentDock"]
 edition = "2021"
