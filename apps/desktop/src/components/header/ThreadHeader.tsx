@@ -1,17 +1,15 @@
 import {
-  Bot,
   Check,
   ChevronDown,
-  Code2,
   GitBranch,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
-  SquareTerminal,
   Wrench,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ProviderIcon } from "@/components/provider/ProviderIcon";
 import { Button } from "@/components/ui/button";
 import { CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -27,8 +25,6 @@ import type {
   ProjectGitBranchInfo,
 } from "@/types";
 import {
-  isCodexProvider,
-  isOpenCodeProvider,
   providerAccentClass,
   providerDisplayName,
 } from "@/lib/provider";
@@ -187,13 +183,7 @@ export function ThreadHeader({
               headerProviderAccent,
             )}
           >
-            {isCodexProvider(headerProviderId) ? (
-              <SquareTerminal className="h-3.5 w-3.5" />
-            ) : isOpenCodeProvider(headerProviderId) ? (
-              <Code2 className="h-3.5 w-3.5" />
-            ) : (
-              <Bot className="h-3.5 w-3.5" />
-            )}
+            <ProviderIcon providerId={headerProviderId} className="h-3.5 w-3.5" />
             {headerProviderName}
           </p>
           <CardTitle className="text-[22px] leading-none">

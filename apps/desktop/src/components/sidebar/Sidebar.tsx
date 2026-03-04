@@ -3,11 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   AlertTriangle,
-  Bot,
   Check,
   ChevronRight,
   ChevronUp,
-  Code2,
   ExternalLink,
   Folder,
   FolderSearch,
@@ -18,11 +16,11 @@ import {
   Plus,
   RefreshCw,
   Settings2,
-  SquareTerminal,
   Sun,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ProviderIcon } from "@/components/provider/ProviderIcon";
 import { SkillsPanel } from "@/components/skills/SkillsPanel";
 import {
   ThreadFolderGroup,
@@ -63,7 +61,6 @@ interface AppThemeOption {
 interface ProviderOption {
   value: ThreadProviderId;
   label: string;
-  Icon: typeof Sun;
   accentClass: string;
 }
 
@@ -131,20 +128,17 @@ const THREAD_PROVIDER_OPTIONS: ProviderOption[] = [
   {
     value: "claude_code",
     label: "Claude Code",
-    Icon: Bot,
-    accentClass: "text-[hsl(var(--brand-claude))]",
+    accentClass: "text-[#FF7043] dark:text-[#FF8A65]",
   },
   {
     value: "codex",
     label: "Codex",
-    Icon: SquareTerminal,
-    accentClass: "text-[hsl(var(--brand-codex))]",
+    accentClass: "text-[#111111] dark:text-[#F2F2F2]",
   },
   {
     value: "opencode",
     label: "OpenCode",
-    Icon: Code2,
-    accentClass: "text-[hsl(var(--brand-opencode))]",
+    accentClass: "text-[#211E1E] dark:text-[#F1ECEC]",
   },
 ];
 const OFFICIAL_SUPPLIER_ID = "official-default";
@@ -2169,9 +2163,15 @@ export function Sidebar({
                 >
                   <span className="inline-flex items-center gap-1.5">
                     {activeProviderOption ? (
-                      <activeProviderOption.Icon className={cn("h-3.5 w-3.5", activeProviderOption.accentClass)} />
+                      <ProviderIcon
+                        providerId={activeProviderOption.value}
+                        className={cn("h-3.5 w-3.5", activeProviderOption.accentClass)}
+                      />
                     ) : (
-                      <Bot className="h-3.5 w-3.5" />
+                      <ProviderIcon
+                        providerId="claude_code"
+                        className="h-3.5 w-3.5 text-[#FF7043] dark:text-[#FF8A65]"
+                      />
                     )}
                     Agent Account
                   </span>
@@ -2352,7 +2352,10 @@ export function Sidebar({
                         disabled={isCreateBusy}
                       >
                         <span className="inline-flex min-w-0 items-center gap-1.5">
-                          <provider.Icon className={cn("h-3.5 w-3.5", provider.accentClass)} />
+                          <ProviderIcon
+                            providerId={provider.value}
+                            className={cn("h-3.5 w-3.5", provider.accentClass)}
+                          />
                           <span className="truncate">{provider.label}</span>
                         </span>
                         <span className="inline-flex items-center gap-1.5">
@@ -2505,7 +2508,10 @@ export function Sidebar({
                         }}
                       >
                         <span className="inline-flex items-center gap-1.5">
-                          <provider.Icon className={cn("h-3.5 w-3.5", provider.accentClass)} />
+                          <ProviderIcon
+                            providerId={provider.value}
+                            className={cn("h-3.5 w-3.5", provider.accentClass)}
+                          />
                           <span className="truncate">{provider.label}</span>
                         </span>
                       </Button>

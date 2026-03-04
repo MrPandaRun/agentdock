@@ -1,15 +1,14 @@
 import {
-  Bot,
   ChevronDown,
   ChevronRight,
-  Code2,
   Folder,
   Loader2,
   SquarePen,
-  SquareTerminal,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { ProviderIcon } from "@/components/provider/ProviderIcon";
+import { providerAccentClass } from "@/lib/provider";
 import { threadKey } from "@/lib/thread";
 import { cn } from "@/lib/utils";
 
@@ -132,7 +131,10 @@ export function ThreadFolderGroup<T extends ThreadListThreadItem>({
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:bg-accent"
                   onClick={() => void handleCreate("claude_code")}
                 >
-                  <Bot className="h-3.5 w-3.5 text-[hsl(var(--brand-claude))]" />
+                  <ProviderIcon
+                    providerId="claude_code"
+                    className={cn("h-3.5 w-3.5", providerAccentClass("claude_code"))}
+                  />
                   Claude Code
                 </button>
                 <button
@@ -140,7 +142,10 @@ export function ThreadFolderGroup<T extends ThreadListThreadItem>({
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:bg-accent"
                   onClick={() => void handleCreate("codex")}
                 >
-                  <SquareTerminal className="h-3.5 w-3.5 text-[hsl(var(--brand-codex))]" />
+                  <ProviderIcon
+                    providerId="codex"
+                    className={cn("h-3.5 w-3.5", providerAccentClass("codex"))}
+                  />
                   Codex
                 </button>
                 <button
@@ -148,7 +153,10 @@ export function ThreadFolderGroup<T extends ThreadListThreadItem>({
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:bg-accent"
                   onClick={() => void handleCreate("opencode")}
                 >
-                  <Code2 className="h-3.5 w-3.5 text-[hsl(var(--brand-opencode))]" />
+                  <ProviderIcon
+                    providerId="opencode"
+                    className={cn("h-3.5 w-3.5", providerAccentClass("opencode"))}
+                  />
                   OpenCode
                 </button>
               </div>

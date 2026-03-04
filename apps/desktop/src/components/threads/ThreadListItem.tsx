@@ -1,5 +1,5 @@
-import { Bot, Code2, SquareTerminal } from "lucide-react";
-
+import { ProviderIcon } from "@/components/provider/ProviderIcon";
+import { providerAccentClass } from "@/lib/provider";
 import { threadKey } from "@/lib/thread";
 import { cn } from "@/lib/utils";
 
@@ -26,9 +26,6 @@ export function ThreadListItem<T extends ThreadListThreadItem>({
   formatLastActive,
   getPreview,
 }: ThreadListItemProps<T>) {
-  const isCodex = thread.providerId === "codex";
-  const isOpenCode = thread.providerId === "opencode";
-
   return (
     <li className="w-full min-w-0">
       <button
@@ -45,21 +42,11 @@ export function ThreadListItem<T extends ThreadListThreadItem>({
             <span
               className={cn(
                 "mt-[1px] inline-flex shrink-0 items-center justify-center rounded-sm",
-                isCodex
-                  ? "text-[hsl(var(--brand-codex))]"
-                  : isOpenCode
-                    ? "text-[hsl(var(--brand-opencode))]"
-                    : "text-[hsl(var(--brand-claude))]",
+                providerAccentClass(thread.providerId),
               )}
               aria-hidden
             >
-              {isCodex ? (
-                <SquareTerminal className="h-3.5 w-3.5" />
-              ) : isOpenCode ? (
-                <Code2 className="h-3.5 w-3.5" />
-              ) : (
-                <Bot className="h-3.5 w-3.5" />
-              )}
+              <ProviderIcon providerId={thread.providerId} className="h-3.5 w-3.5" />
             </span>
             <p className="min-w-0 truncate text-[12px] leading-snug text-foreground/95">
               {getPreview(thread)}

@@ -23,12 +23,12 @@ export function providerDisplayName(providerId?: string): string {
 
 export function providerAccentClass(providerId?: string): string {
   if (isCodexProvider(providerId)) {
-    return "text-[hsl(var(--brand-codex))]";
+    return "text-[#111111] dark:text-[#F2F2F2]";
   }
   if (isOpenCodeProvider(providerId)) {
-    return "text-[hsl(var(--brand-opencode))]";
+    return "text-[#211E1E] dark:text-[#F1ECEC]";
   }
-  return "text-[hsl(var(--brand-claude))]";
+  return "text-[#FF7043] dark:text-[#FF8A65]";
 }
 
 export function isSupportedProvider(value: string): value is ThreadProviderId {
