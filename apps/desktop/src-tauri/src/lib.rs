@@ -1,5 +1,6 @@
 mod ccswitch;
 mod commands;
+mod open_targets;
 mod path_env;
 mod payloads;
 mod provider_health;
@@ -28,6 +29,9 @@ pub fn run() {
             commands::open_thread_in_terminal,
             commands::open_thread_in_happy,
             commands::is_happy_installed,
+            commands::list_open_targets,
+            commands::open_project_with_target,
+            commands::get_project_git_branch,
             commands::open_new_thread_in_terminal,
             commands::start_embedded_terminal,
             commands::start_new_embedded_terminal,

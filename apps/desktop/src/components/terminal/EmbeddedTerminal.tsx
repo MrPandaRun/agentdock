@@ -94,7 +94,7 @@ export function EmbeddedTerminal({
       className="relative h-full w-full select-text overflow-hidden"
       style={{ backgroundColor: activeTheme.containerBackground }}
     >
-      <div className="h-full w-full px-1 pb-2 pt-2">
+      <div className="h-full w-full px-1 pb-2 pt-11">
         <div ref={hostRef} className="h-full w-full" />
       </div>
       {isSwitchingThread ? (
@@ -116,7 +116,7 @@ export function EmbeddedTerminal({
         </div>
       ) : null}
       <div
-        className="pointer-events-none absolute left-1.5 top-1 text-[11px]"
+        className="pointer-events-none absolute left-1.5 top-2 text-[11px]"
         style={{ color: activeTheme.commandText }}
       >
         {isRefreshing ? (
@@ -135,7 +135,7 @@ export function EmbeddedTerminal({
       </div>
       {refreshError ? (
         <div
-          className="pointer-events-none absolute left-1.5 top-6 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
+          className="pointer-events-none absolute left-1.5 top-7 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
           style={{
             borderColor: "rgba(244, 63, 94, 0.5)",
             backgroundColor:
@@ -152,7 +152,7 @@ export function EmbeddedTerminal({
         </div>
       ) : happyError ? (
         <div
-          className="pointer-events-none absolute left-1.5 top-6 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
+          className="pointer-events-none absolute left-1.5 top-7 max-w-[70%] rounded-md border px-2.5 py-1 text-[11px]"
           style={{
             borderColor: "rgba(244, 63, 94, 0.5)",
             backgroundColor:

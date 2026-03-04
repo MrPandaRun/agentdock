@@ -15,6 +15,37 @@ export interface ProviderInstallStatus {
   message?: string | null;
 }
 
+export type OpenTargetId =
+  | "vscode"
+  | "cursor"
+  | "windsurf"
+  | "antigravity"
+  | "zed"
+  | "intellij"
+  | "webstorm"
+  | "pycharm"
+  | "sublime_text"
+  | "terminal"
+  | "iterm"
+  | "warp";
+
+export interface OpenTargetStatus {
+  id: OpenTargetId;
+  label: string;
+  installed: boolean;
+  available: boolean;
+  detail?: string | null;
+  kind: "ide" | "terminal";
+}
+
+export type ProjectGitBranchStatus = "ok" | "no_repo" | "path_missing" | "error";
+
+export interface ProjectGitBranchInfo {
+  status: ProjectGitBranchStatus;
+  branch?: string | null;
+  message?: string | null;
+}
+
 export type AgentSupplierKind = "official" | "custom";
 
 export interface AgentSupplier {

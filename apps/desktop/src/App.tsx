@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ThreadHeader } from "@/components/header/ThreadHeader";
 import { Sidebar } from "@/components/sidebar/Sidebar";
@@ -8,12 +9,32 @@ import { Separator } from "@/components/ui/separator";
 import { useSidebar } from "@/hooks/useSidebar";
 import { useThreads } from "@/hooks/useThreads";
 import { useWindowDrag } from "@/hooks/useWindowDrag";
+import {
+  buildIdeContextEnv,
+  DEFAULT_OPEN_TARGET_STORAGE_KEY,
+  IDE_CONTEXT_BY_THREAD_STORAGE_KEY,
+  normalizeDefaultOpenTarget,
+  parseIdeContextByThread,
+  parseProjectOpenUsageMap,
+  PROJECT_OPEN_USAGE_STORAGE_KEY,
+  resolveQuickOpenTargetId,
+  resolveDefaultOpenTarget,
+  serializeIdeContextByThread,
+  serializeProjectOpenUsageMap,
+  sortTargetsByProjectUsage,
+  setThreadIdeContextEnabled,
+  updateProjectOpenUsage,
+} from "@/lib/developerActions";
 import { isSupportedProvider, providerDisplayName } from "@/lib/provider";
+import { threadKey } from "@/lib/thread";
 import { cn } from "@/lib/utils";
 import type {
   AgentRuntimeSettings,
   AgentSupplier,
   AppTheme,
+  OpenTargetId,
+  OpenTargetStatus,
+  ProjectGitBranchInfo,
   ProviderProfileMap,
   TerminalTheme,
   ThreadProviderId,
@@ -26,6 +47,40 @@ const LEGACY_ACTIVE_PROVIDER_KEY = "agentdock.desktop.active_provider";
 const LEGACY_ACTIVE_PROFILE_KEY = "agentdock.desktop.active_profile";
 const OFFICIAL_SUPPLIER_ID = "official-default";
 const PROVIDER_IDS: ThreadProviderId[] = ["claude_code", "codex", "opencode"];
+const GIT_BRANCH_POLL_INTERVAL_MS = 8_000;
+
+interface OpenProjectWithTargetResponse {
+  launched: boolean;
+  targetId: string;
+  command: string;
+}
+
+function readStoredDefaultOpenTarget(): OpenTargetId {
+  if (typeof window === "undefined") {
+    return normalizeDefaultOpenTarget(undefined);
+  }
+  return normalizeDefaultOpenTarget(
+    window.localStorage.getItem(DEFAULT_OPEN_TARGET_STORAGE_KEY),
+  );
+}
+
+function readStoredIdeContextByThread(): Record<string, boolean> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  return parseIdeContextByThread(
+    window.localStorage.getItem(IDE_CONTEXT_BY_THREAD_STORAGE_KEY),
+  );
+}
+
+function readStoredProjectOpenUsage(): ReturnType<typeof parseProjectOpenUsageMap> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  return parseProjectOpenUsageMap(
+    window.localStorage.getItem(PROJECT_OPEN_USAGE_STORAGE_KEY),
+  );
+}
 
 function readStoredAppTheme(): AppTheme {
   if (typeof window === "undefined") {
@@ -602,6 +657,276 @@ function App() {
     handleEmbeddedTerminalSessionExit,
   } = useThreads();
 
+  const [openTargets, setOpenTargets] = useState<OpenTargetStatus[]>([]);
+  const [loadingOpenTargets, setLoadingOpenTargets] = useState(false);
+  const [openTargetsLoadError, setOpenTargetsLoadError] = useState<string | null>(null);
+  const [defaultOpenTargetId, setDefaultOpenTargetId] = useState<OpenTargetId>(
+    readStoredDefaultOpenTarget,
+  );
+  const [openingTargetId, setOpeningTargetId] = useState<OpenTargetId | null>(null);
+  const [openTargetActionError, setOpenTargetActionError] = useState<string | null>(null);
+  const [ideContextByThread, setIdeContextByThread] = useState<Record<string, boolean>>(
+    readStoredIdeContextByThread,
+  );
+  const [projectOpenUsage, setProjectOpenUsage] = useState(readStoredProjectOpenUsage);
+  const [gitBranchInfo, setGitBranchInfo] = useState<ProjectGitBranchInfo | null>(null);
+  const [gitBranchLoading, setGitBranchLoading] = useState(false);
+
+  const activeHeaderProjectPath = newThreadLaunch
+    ? newThreadLaunch.projectPath
+    : (selectedThread?.projectPath ?? null);
+  const normalizedActiveProjectPath = useMemo(() => {
+    const trimmed = activeHeaderProjectPath?.trim();
+    if (!trimmed || trimmed === "-") {
+      return null;
+    }
+    return trimmed;
+  }, [activeHeaderProjectPath]);
+
+  const selectedThreadStorageKey = useMemo(() => {
+    if (!selectedThread) {
+      return null;
+    }
+    return threadKey(selectedThread);
+  }, [selectedThread]);
+
+  const ideContextToggleDisabled =
+    !selectedThreadStorageKey || newThreadLaunch !== null;
+  const ideContextEnabled =
+    !ideContextToggleDisabled &&
+    selectedThreadStorageKey !== null &&
+    ideContextByThread[selectedThreadStorageKey] === true;
+
+  const selectedThreadIdeContextEnv = useMemo(() => {
+    if (!selectedThread || newThreadLaunch || !selectedThreadStorageKey) {
+      return undefined;
+    }
+    const enabled = ideContextByThread[selectedThreadStorageKey] === true;
+    const gitBranch =
+      gitBranchInfo?.status === "ok" ? (gitBranchInfo.branch ?? "") : "";
+    return buildIdeContextEnv({
+      enabled,
+      threadKey: selectedThreadStorageKey,
+      providerId: selectedThread.providerId,
+      projectPath: selectedThread.projectPath,
+      gitBranch,
+    });
+  }, [
+    gitBranchInfo,
+    ideContextByThread,
+    newThreadLaunch,
+    selectedThread,
+    selectedThreadStorageKey,
+  ]);
+
+  const loadOpenTargets = useCallback(async () => {
+    setLoadingOpenTargets(true);
+    setOpenTargetsLoadError(null);
+
+    try {
+      const targets = await invoke<OpenTargetStatus[]>("list_open_targets");
+      setOpenTargets(targets);
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error ? loadError.message : String(loadError);
+      setOpenTargetsLoadError(message);
+      setOpenTargets([]);
+    } finally {
+      setLoadingOpenTargets(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOpenTargets();
+  }, [loadOpenTargets]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleFocus = () => {
+      void loadOpenTargets();
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [loadOpenTargets]);
+
+  const effectiveDefaultOpenTargetId = useMemo(
+    () => resolveDefaultOpenTarget(defaultOpenTargetId, openTargets),
+    [defaultOpenTargetId, openTargets],
+  );
+  const activeProjectUsage = useMemo(() => {
+    if (!normalizedActiveProjectPath) {
+      return undefined;
+    }
+    return projectOpenUsage[normalizedActiveProjectPath];
+  }, [normalizedActiveProjectPath, projectOpenUsage]);
+  const sortedOpenTargets = useMemo(
+    () => sortTargetsByProjectUsage(openTargets, activeProjectUsage),
+    [activeProjectUsage, openTargets],
+  );
+  const quickOpenTargetId = useMemo(
+    () =>
+      resolveQuickOpenTargetId(
+        openTargets,
+        activeProjectUsage,
+        effectiveDefaultOpenTargetId,
+      ),
+    [activeProjectUsage, effectiveDefaultOpenTargetId, openTargets],
+  );
+
+  useEffect(() => {
+    if (effectiveDefaultOpenTargetId === defaultOpenTargetId) {
+      return;
+    }
+    setDefaultOpenTargetId(effectiveDefaultOpenTargetId);
+  }, [defaultOpenTargetId, effectiveDefaultOpenTargetId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      DEFAULT_OPEN_TARGET_STORAGE_KEY,
+      defaultOpenTargetId,
+    );
+  }, [defaultOpenTargetId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      IDE_CONTEXT_BY_THREAD_STORAGE_KEY,
+      serializeIdeContextByThread(ideContextByThread),
+    );
+  }, [ideContextByThread]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      PROJECT_OPEN_USAGE_STORAGE_KEY,
+      serializeProjectOpenUsageMap(projectOpenUsage),
+    );
+  }, [projectOpenUsage]);
+
+  const loadGitBranch = useCallback(async () => {
+    if (!normalizedActiveProjectPath) {
+      setGitBranchInfo(null);
+      setGitBranchLoading(false);
+      return;
+    }
+
+    setGitBranchLoading(true);
+    try {
+      const payload = await invoke<ProjectGitBranchInfo>("get_project_git_branch", {
+        request: {
+          projectPath: normalizedActiveProjectPath,
+        },
+      });
+      setGitBranchInfo({
+        status: payload.status,
+        branch: payload.branch ?? null,
+        message: payload.message ?? null,
+      });
+    } catch (branchError) {
+      const message =
+        branchError instanceof Error ? branchError.message : String(branchError);
+      setGitBranchInfo({
+        status: "error",
+        branch: null,
+        message,
+      });
+    } finally {
+      setGitBranchLoading(false);
+    }
+  }, [normalizedActiveProjectPath]);
+
+  useEffect(() => {
+    if (!normalizedActiveProjectPath) {
+      setGitBranchInfo(null);
+      setGitBranchLoading(false);
+      return;
+    }
+
+    void loadGitBranch();
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadGitBranch();
+    }, GIT_BRANCH_POLL_INTERVAL_MS);
+    const handleFocus = () => {
+      void loadGitBranch();
+    };
+
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [loadGitBranch, normalizedActiveProjectPath]);
+
+  const handleDefaultOpenTargetChange = useCallback((targetId: OpenTargetId) => {
+    setDefaultOpenTargetId(targetId);
+  }, []);
+
+  const handleOpenWithTarget = useCallback(
+    async (targetId: OpenTargetId) => {
+      if (!normalizedActiveProjectPath) {
+        setOpenTargetActionError(
+          "Select a thread with a valid project path before opening in a target.",
+        );
+        return;
+      }
+
+      setOpenTargetActionError(null);
+      setOpeningTargetId(targetId);
+      try {
+        await invoke<OpenProjectWithTargetResponse>("open_project_with_target", {
+          request: {
+            projectPath: normalizedActiveProjectPath,
+            targetId,
+          },
+        });
+        setProjectOpenUsage((current) =>
+          updateProjectOpenUsage(current, normalizedActiveProjectPath, targetId),
+        );
+        void loadGitBranch();
+      } catch (openError) {
+        const message =
+          openError instanceof Error ? openError.message : String(openError);
+        setOpenTargetActionError(message);
+      } finally {
+        setOpeningTargetId(null);
+      }
+    },
+    [loadGitBranch, normalizedActiveProjectPath],
+  );
+
+  useEffect(() => {
+    setOpenTargetActionError(null);
+  }, [normalizedActiveProjectPath]);
+
+  const handleIdeContextEnabledChange = useCallback(
+    (enabled: boolean) => {
+      if (!selectedThreadStorageKey || newThreadLaunch) {
+        return;
+      }
+      setIdeContextByThread((current) =>
+        setThreadIdeContextEnabled(current, selectedThreadStorageKey, enabled),
+      );
+    },
+    [newThreadLaunch, selectedThreadStorageKey],
+  );
+
+  const developerActionError = openTargetActionError ?? openTargetsLoadError;
+
   const { dragRegionRef, windowDragStripHeight } = useWindowDrag();
 
   useEffect(() => {
@@ -753,6 +1078,19 @@ function App() {
             selectedThread={selectedThread}
             newThreadLaunch={newThreadLaunch}
             newThreadBindingStatus={newThreadBindingStatus}
+            openTargets={sortedOpenTargets}
+            loadingOpenTargets={loadingOpenTargets}
+            defaultOpenTargetId={effectiveDefaultOpenTargetId}
+            quickOpenTargetId={quickOpenTargetId}
+            openingTargetId={openingTargetId}
+            openTargetError={developerActionError}
+            onOpenWithTarget={handleOpenWithTarget}
+            onDefaultOpenTargetChange={handleDefaultOpenTargetChange}
+            ideContextEnabled={ideContextEnabled}
+            ideContextToggleDisabled={ideContextToggleDisabled}
+            onIdeContextEnabledChange={handleIdeContextEnabledChange}
+            gitBranchInfo={gitBranchInfo}
+            gitBranchLoading={gitBranchLoading}
             onToggleSidebar={toggleSidebar}
           />
           <Separator />
@@ -775,6 +1113,7 @@ function App() {
                           providerId: selectedThread.providerId,
                           profileName: resolveProfileNameForProvider(selectedThread.providerId),
                           launchEnv: resolveLaunchEnv(selectedThread.providerId),
+                          ideContextEnv: selectedThreadIdeContextEnv,
                           projectPath: selectedThread.projectPath,
                         }
                       : null

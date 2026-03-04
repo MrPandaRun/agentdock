@@ -94,6 +94,7 @@ export function useEmbeddedTerminalController({
   const threadProviderId = thread?.providerId ?? null;
   const threadProfileName = thread?.profileName ?? null;
   const threadLaunchEnv = thread?.launchEnv;
+  const threadIdeContextEnv = thread?.ideContextEnv;
   const threadLaunchEnvSignature = useMemo(() => envSignature(threadLaunchEnv), [threadLaunchEnv]);
   const threadProjectPath = thread?.projectPath ?? null;
   const launchRequestId = launchRequest?.launchId ?? null;
@@ -125,6 +126,7 @@ export function useEmbeddedTerminalController({
         providerId: launchRequestProviderId,
         profileName: launchRequestProfileName,
         launchEnv: launchRequestLaunchEnv,
+        ideContextEnv: undefined,
         projectPath: launchRequestProjectPath,
         knownThreadKeys: launchRequestKnownThreadKeys,
       };
@@ -139,6 +141,7 @@ export function useEmbeddedTerminalController({
       providerId: threadProviderId,
       profileName: threadProfileName,
       launchEnv: threadLaunchEnv,
+      ideContextEnv: threadIdeContextEnv,
       projectPath: threadProjectPath,
     };
   }, [
@@ -149,6 +152,7 @@ export function useEmbeddedTerminalController({
     launchRequestProjectPath,
     launchRequestProviderId,
     threadId,
+    threadIdeContextEnv,
     threadKey,
     threadLaunchEnv,
     threadProfileName,

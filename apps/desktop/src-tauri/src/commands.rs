@@ -6,20 +6,23 @@ use crate::payloads::{
     CloseEmbeddedTerminalRequest, CodexThreadRuntimeStatePayload,
     DiscoverSkillInstallProgressPayload,
     GetClaudeThreadRuntimeStateRequest, GetCodexThreadRuntimeStateRequest,
-    GetOpenCodeThreadRuntimeStateRequest, InstallDiscoveredSkillRequest,
+    GetOpenCodeThreadRuntimeStateRequest, GetProjectGitBranchRequest,
+    InstallDiscoveredSkillRequest,
     InstallSkillFromGitRequest, InstallSkillFromPathRequest, OpenCodeThreadRuntimeStatePayload,
-    OpenNewThreadInTerminalRequest, OpenThreadInHappyRequest, OpenThreadInTerminalRequest,
-    OpenThreadInTerminalResponse, ProviderInstallStatusPayload, RemoveSkillRepoRequest,
-    ResizeEmbeddedTerminalRequest, SkillPayload, SkillRepoPayload, StartEmbeddedTerminalRequest,
-    StartEmbeddedTerminalResponse, StartNewEmbeddedTerminalRequest, ThreadSummaryPayload,
+    OpenNewThreadInTerminalRequest, OpenProjectWithTargetRequest,
+    OpenProjectWithTargetResponse, OpenTargetStatusPayload, OpenThreadInHappyRequest,
+    OpenThreadInTerminalRequest, OpenThreadInTerminalResponse, ProjectGitBranchPayload,
+    ProviderInstallStatusPayload, RemoveSkillRepoRequest, ResizeEmbeddedTerminalRequest,
+    SkillPayload, SkillRepoPayload, StartEmbeddedTerminalRequest, StartEmbeddedTerminalResponse,
+    StartNewEmbeddedTerminalRequest, ThreadSummaryPayload,
     ToggleSkillEnabledForProviderRequest, ToggleSkillEnabledRequest, UninstallSkillRequest,
     WriteEmbeddedTerminalInputRequest,
 };
 use crate::provider_id::parse_provider_id;
 use crate::skills::{DiscoverableSkill, SkillsContext};
 use crate::{
-    ccswitch, payloads::ImportProviderSkillsRequest, payloads::ProviderSkillPayload, provider_health, skills,
-    terminal, threads,
+    ccswitch, open_targets, payloads::ImportProviderSkillsRequest,
+    payloads::ProviderSkillPayload, provider_health, skills, terminal, threads,
 };
 
 #[tauri::command]
@@ -128,6 +131,35 @@ pub async fn is_happy_installed() -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(terminal::is_happy_installed)
         .await
         .map_err(|error| format!("Failed to check Happy installation: {error}"))?
+}
+
+#[tauri::command]
+pub async fn list_open_targets() -> Result<Vec<OpenTargetStatusPayload>, String> {
+    tauri::async_runtime::spawn_blocking(open_targets::list_open_targets)
+        .await
+        .map_err(|error| format!("Failed to list open targets: {error}"))?
+}
+
+#[tauri::command]
+pub async fn open_project_with_target(
+    request: OpenProjectWithTargetRequest,
+) -> Result<OpenProjectWithTargetResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        open_targets::open_project_with_target(&request.project_path, &request.target_id)
+    })
+    .await
+    .map_err(|error| format!("Failed to open project with target: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_project_git_branch(
+    request: GetProjectGitBranchRequest,
+) -> Result<ProjectGitBranchPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        open_targets::get_project_git_branch(&request.project_path)
+    })
+    .await
+    .map_err(|error| format!("Failed to get project git branch: {error}"))?
 }
 
 #[tauri::command]

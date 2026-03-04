@@ -3,6 +3,7 @@ export interface EmbeddedTerminalThread {
   providerId: string;
   profileName: string;
   launchEnv?: Record<string, string>;
+  ideContextEnv?: Record<string, string>;
   projectPath: string;
 }
 
@@ -62,6 +63,7 @@ export type SessionLaunchTarget =
       providerId: string;
       profileName: string;
       launchEnv?: Record<string, string>;
+      ideContextEnv?: Record<string, string>;
       projectPath: string;
     }
   | {
@@ -71,6 +73,7 @@ export type SessionLaunchTarget =
       providerId: string;
       profileName: string;
       launchEnv?: Record<string, string>;
+      ideContextEnv?: Record<string, string>;
       projectPath: string;
       knownThreadKeys: string[];
     };

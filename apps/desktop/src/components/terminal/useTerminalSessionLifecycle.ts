@@ -40,6 +40,17 @@ interface UseTerminalSessionLifecycleProps {
   lastHandledRefreshRequestRef: MutableRefObject<number>;
 }
 
+function mergeLaunchEnvs(
+  launchEnv?: Record<string, string>,
+  ideContextEnv?: Record<string, string>,
+): Record<string, string> | undefined {
+  const merged = {
+    ...(launchEnv ?? {}),
+    ...(ideContextEnv ?? {}),
+  };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 export function useTerminalSessionLifecycle({
   appendSessionBuffer,
   closeSessionById,
@@ -134,6 +145,10 @@ export function useTerminalSessionLifecycle({
       setStarting(true);
 
       try {
+        const mergedEnv = mergeLaunchEnvs(
+          launchTarget.launchEnv,
+          launchTarget.ideContextEnv,
+        );
         const response =
           launchTarget.mode === "resume"
             ? await invoke<StartEmbeddedTerminalResponse>("start_embedded_terminal", {
@@ -141,7 +156,7 @@ export function useTerminalSessionLifecycle({
                   threadId: launchTarget.threadId,
                   providerId: launchTarget.providerId,
                   profileName: launchTarget.profileName,
-                  env: launchTarget.launchEnv,
+                  env: mergedEnv,
                   projectPath: launchTarget.projectPath,
                   terminalTheme,
                   cols: Math.max(40, terminal.cols || 120),
@@ -152,7 +167,7 @@ export function useTerminalSessionLifecycle({
                 request: {
                   providerId: launchTarget.providerId,
                   profileName: launchTarget.profileName,
-                  env: launchTarget.launchEnv,
+                  env: mergedEnv,
                   projectPath: launchTarget.projectPath,
                   terminalTheme,
                   cols: Math.max(40, terminal.cols || 120),

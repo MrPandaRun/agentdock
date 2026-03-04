@@ -104,6 +104,46 @@ pub struct OpenThreadInHappyRequest {
     pub project_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTargetStatusPayload {
+    pub id: String,
+    pub label: String,
+    pub installed: bool,
+    pub available: bool,
+    pub detail: Option<String>,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenProjectWithTargetRequest {
+    pub project_path: String,
+    pub target_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenProjectWithTargetResponse {
+    pub launched: bool,
+    pub target_id: String,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetProjectGitBranchRequest {
+    pub project_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGitBranchPayload {
+    pub status: String,
+    pub branch: Option<String>,
+    pub message: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenNewThreadInTerminalRequest {
