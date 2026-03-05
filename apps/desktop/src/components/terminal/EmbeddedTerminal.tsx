@@ -94,7 +94,7 @@ export function EmbeddedTerminal({
       className="relative h-full w-full select-text overflow-hidden"
       style={{ backgroundColor: activeTheme.containerBackground }}
     >
-      <div className="h-full w-full px-1 pb-2 pt-11">
+      <div className="h-full w-full px-1 pb-2 pt-8">
         <div ref={hostRef} className="h-full w-full" />
       </div>
       {isSwitchingThread ? (

@@ -5,7 +5,14 @@ use thiserror::Error;
 
 const MIGRATIONS: &[(&str, &str)] = &[
     ("0001_init", include_str!("../../migrations/0001_init.sql")),
-    ("0002_skills_enhanced", include_str!("../../migrations/0002_skills_enhanced.sql")),
+    (
+        "0002_skills_enhanced",
+        include_str!("../../migrations/0002_skills_enhanced.sql"),
+    ),
+    (
+        "0003_mcp_management",
+        include_str!("../../migrations/0003_mcp_management.sql"),
+    ),
 ];
 
 #[derive(Debug, Error)]
@@ -86,7 +93,9 @@ mod tests {
             "accounts",
             "configs",
             "mcps",
+            "mcp_operation_logs",
             "skills",
+            "skill_repos",
             "threads",
             "thread_messages",
             "switch_events",
@@ -110,7 +119,7 @@ mod tests {
                 row.get(0)
             })
             .expect("count query should succeed");
-        assert_eq!(applied, 2);
+        assert_eq!(applied, 3);
     }
 
     #[test]

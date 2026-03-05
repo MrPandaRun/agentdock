@@ -145,3 +145,69 @@ export interface ProviderSkill {
   provider: string;
   path: string;
 }
+
+export type McpTransport = "stdio" | "http" | "sse";
+
+export interface McpServer {
+  id: string;
+  name: string;
+  transport: McpTransport;
+  target: string;
+  argsJson: string;
+  headersJson: string;
+  envJson: string;
+  scopeProviders: string[];
+  enabled: boolean;
+  version: string;
+  createdAt: string;
+  updatedAt: string;
+  hasSecret: boolean;
+  secretHeaderName?: string;
+  lastTestedAt?: string | null;
+  lastTestStatus?: string | null;
+  lastTestMessage?: string | null;
+  lastTestDurationMs?: number | null;
+}
+
+export interface McpFieldError {
+  field: string;
+  message: string;
+}
+
+export interface SaveMcpServerResponse {
+  server?: McpServer | null;
+  fieldErrors: McpFieldError[];
+  message?: string | null;
+}
+
+export interface McpConnectionTestResult {
+  success: boolean;
+  errorSummary?: string | null;
+  durationMs: number;
+  checkedAt: string;
+  fieldErrors: McpFieldError[];
+}
+
+export interface SyncMcpProviderResult {
+  providerId: ThreadProviderId | string;
+  success: boolean;
+  message?: string | null;
+  backupPath?: string | null;
+  serverCount: number;
+}
+
+export interface SyncMcpConfigsResponse {
+  success: boolean;
+  rolledBack: boolean;
+  message?: string | null;
+  results: SyncMcpProviderResult[];
+}
+
+export interface McpOperationLog {
+  id: number;
+  mcpId?: string | null;
+  action: string;
+  actor: string;
+  detailsJson: string;
+  createdAt: string;
+}

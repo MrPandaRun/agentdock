@@ -3,25 +3,26 @@ use tauri::Emitter;
 
 use crate::payloads::{
     AddSkillRepoRequest, CcSwitchImportPayload, ClaudeThreadRuntimeStatePayload,
-    CloseEmbeddedTerminalRequest, CodexThreadRuntimeStatePayload,
-    DiscoverSkillInstallProgressPayload,
-    GetClaudeThreadRuntimeStateRequest, GetCodexThreadRuntimeStateRequest,
-    GetOpenCodeThreadRuntimeStateRequest, GetProjectGitBranchRequest,
-    InstallDiscoveredSkillRequest,
-    InstallSkillFromGitRequest, InstallSkillFromPathRequest, OpenCodeThreadRuntimeStatePayload,
-    OpenNewThreadInTerminalRequest, OpenProjectWithTargetRequest,
-    OpenProjectWithTargetResponse, OpenTargetStatusPayload, OpenThreadInHappyRequest,
-    OpenThreadInTerminalRequest, OpenThreadInTerminalResponse, ProjectGitBranchPayload,
-    ProviderInstallStatusPayload, RemoveSkillRepoRequest, ResizeEmbeddedTerminalRequest,
+    CloseEmbeddedTerminalRequest, CodexThreadRuntimeStatePayload, DeleteMcpServerRequest,
+    DiscoverSkillInstallProgressPayload, GetClaudeThreadRuntimeStateRequest,
+    GetCodexThreadRuntimeStateRequest, GetOpenCodeThreadRuntimeStateRequest,
+    GetProjectGitBranchRequest, InstallDiscoveredSkillRequest, InstallSkillFromGitRequest,
+    InstallSkillFromPathRequest, McpConnectionTestResultPayload, McpOperationLogPayload,
+    McpServerPayload, OpenCodeThreadRuntimeStatePayload, OpenNewThreadInTerminalRequest,
+    OpenProjectWithTargetRequest, OpenProjectWithTargetResponse, OpenTargetStatusPayload,
+    OpenThreadInHappyRequest, OpenThreadInTerminalRequest, OpenThreadInTerminalResponse,
+    ProjectGitBranchPayload, ProviderInstallStatusPayload, RemoveSkillRepoRequest,
+    ResizeEmbeddedTerminalRequest, SaveMcpServerRequest, SaveMcpServerResponsePayload,
     SkillPayload, SkillRepoPayload, StartEmbeddedTerminalRequest, StartEmbeddedTerminalResponse,
-    StartNewEmbeddedTerminalRequest, ThreadSummaryPayload,
+    StartNewEmbeddedTerminalRequest, SyncMcpConfigsRequest, SyncMcpConfigsResponsePayload,
+    TestMcpConnectionRequest, ThreadSummaryPayload, ToggleMcpServerEnabledRequest,
     ToggleSkillEnabledForProviderRequest, ToggleSkillEnabledRequest, UninstallSkillRequest,
     WriteEmbeddedTerminalInputRequest,
 };
 use crate::provider_id::parse_provider_id;
 use crate::skills::{DiscoverableSkill, SkillsContext};
 use crate::{
-    ccswitch, open_targets, payloads::ImportProviderSkillsRequest,
+    ccswitch, mcp, open_targets, payloads::ImportProviderSkillsRequest,
     payloads::ProviderSkillPayload, provider_health, skills, terminal, threads,
 };
 
@@ -404,7 +405,12 @@ pub async fn toggle_skill_enabled_for_provider(
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let ctx = SkillsContext::from_app_handle(&app)?;
-        skills::toggle_skill_enabled_for_provider_cmd(&ctx, &request.id, &request.provider, request.enabled)
+        skills::toggle_skill_enabled_for_provider_cmd(
+            &ctx,
+            &request.id,
+            &request.provider,
+            request.enabled,
+        )
     })
     .await
     .map_err(|error| format!("Failed to toggle skill for provider: {error}"))?
@@ -450,7 +456,10 @@ pub async fn remove_skill_repo(
 }
 
 #[tauri::command]
-pub async fn discover_skills(app: tauri::AppHandle, force_refresh: Option<bool>) -> Result<Vec<DiscoverableSkill>, String> {
+pub async fn discover_skills(
+    app: tauri::AppHandle,
+    force_refresh: Option<bool>,
+) -> Result<Vec<DiscoverableSkill>, String> {
     let force = force_refresh.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         let ctx = SkillsContext::from_app_handle(&app)?;
@@ -461,7 +470,9 @@ pub async fn discover_skills(app: tauri::AppHandle, force_refresh: Option<bool>)
 }
 
 #[tauri::command]
-pub async fn scan_provider_skills(app: tauri::AppHandle) -> Result<Vec<ProviderSkillPayload>, String> {
+pub async fn scan_provider_skills(
+    app: tauri::AppHandle,
+) -> Result<Vec<ProviderSkillPayload>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let ctx = SkillsContext::from_app_handle(&app)?;
         let skills = skills::scan_provider_skills_cmd(&ctx)?;
@@ -483,4 +494,92 @@ pub async fn import_provider_skills(
     })
     .await
     .map_err(|error| format!("Failed to import provider skills: {error}"))?
+}
+
+#[tauri::command]
+pub async fn list_mcp_servers(app: tauri::AppHandle) -> Result<Vec<McpServerPayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = mcp::McpContext::from_app_handle(&app)?;
+        mcp::list_mcp_servers_cmd(&ctx)
+    })
+    .await
+    .map_err(|error| format!("Failed to list MCP servers: {error}"))?
+}
+
+#[tauri::command]
+pub async fn list_mcp_operation_logs(
+    app: tauri::AppHandle,
+    limit: Option<u32>,
+) -> Result<Vec<McpOperationLogPayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = mcp::McpContext::from_app_handle(&app)?;
+        mcp::list_mcp_operation_logs_cmd(&ctx, limit)
+    })
+    .await
+    .map_err(|error| format!("Failed to list MCP operation logs: {error}"))?
+}
+
+#[tauri::command]
+pub async fn save_mcp_server(
+    app: tauri::AppHandle,
+    request: SaveMcpServerRequest,
+) -> Result<SaveMcpServerResponsePayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = mcp::McpContext::from_app_handle(&app)?;
+        mcp::save_mcp_server_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to save MCP server: {error}"))?
+}
+
+#[tauri::command]
+pub async fn delete_mcp_server(
+    app: tauri::AppHandle,
+    request: DeleteMcpServerRequest,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = mcp::McpContext::from_app_handle(&app)?;
+        mcp::delete_mcp_server_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to delete MCP server: {error}"))?
+}
+
+#[tauri::command]
+pub async fn toggle_mcp_server_enabled(
+    app: tauri::AppHandle,
+    request: ToggleMcpServerEnabledRequest,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = mcp::McpContext::from_app_handle(&app)?;
+        mcp::toggle_mcp_server_enabled_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to toggle MCP server status: {error}"))?
+}
+
+#[tauri::command]
+pub async fn test_mcp_server_connection(
+    app: tauri::AppHandle,
+    request: TestMcpConnectionRequest,
+) -> Result<McpConnectionTestResultPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = mcp::McpContext::from_app_handle(&app)?;
+        mcp::test_mcp_server_connection_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to test MCP connection: {error}"))?
+}
+
+#[tauri::command]
+pub async fn sync_mcp_configs(
+    app: tauri::AppHandle,
+    request: SyncMcpConfigsRequest,
+) -> Result<SyncMcpConfigsResponsePayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = mcp::McpContext::from_app_handle(&app)?;
+        mcp::sync_mcp_configs_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to sync MCP configs: {error}"))?
 }

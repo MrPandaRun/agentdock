@@ -1,5 +1,6 @@
 mod ccswitch;
 mod commands;
+mod mcp;
 mod open_targets;
 mod path_env;
 mod payloads;
@@ -50,7 +51,14 @@ pub fn run() {
             commands::remove_skill_repo,
             commands::discover_skills,
             commands::scan_provider_skills,
-            commands::import_provider_skills
+            commands::import_provider_skills,
+            commands::list_mcp_servers,
+            commands::list_mcp_operation_logs,
+            commands::save_mcp_server,
+            commands::delete_mcp_server,
+            commands::toggle_mcp_server_enabled,
+            commands::test_mcp_server_connection,
+            commands::sync_mcp_configs
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
