@@ -391,3 +391,132 @@ impl From<crate::skills::ProviderSkill> for ProviderSkillPayload {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerPayload {
+    pub id: String,
+    pub name: String,
+    pub transport: String,
+    pub target: String,
+    pub args_json: String,
+    pub headers_json: String,
+    pub env_json: String,
+    pub scope_providers: Vec<String>,
+    pub enabled: bool,
+    pub version: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub has_secret: bool,
+    pub secret_header_name: Option<String>,
+    pub last_tested_at: Option<String>,
+    pub last_test_status: Option<String>,
+    pub last_test_message: Option<String>,
+    pub last_test_duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpFieldErrorPayload {
+    pub field: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveMcpServerRequest {
+    pub id: Option<String>,
+    pub name: String,
+    pub transport: String,
+    pub target: String,
+    pub args_json: Option<String>,
+    pub headers_json: Option<String>,
+    pub env_json: Option<String>,
+    pub scope_providers: Option<Vec<String>>,
+    pub enabled: bool,
+    pub version: Option<String>,
+    pub secret_header_name: Option<String>,
+    pub secret_token: Option<String>,
+    pub clear_secret: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveMcpServerResponsePayload {
+    pub server: Option<McpServerPayload>,
+    pub field_errors: Vec<McpFieldErrorPayload>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteMcpServerRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToggleMcpServerEnabledRequest {
+    pub id: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestMcpConnectionRequest {
+    pub id: Option<String>,
+    pub transport: String,
+    pub target: String,
+    pub args_json: Option<String>,
+    pub headers_json: Option<String>,
+    pub env_json: Option<String>,
+    pub secret_header_name: Option<String>,
+    pub secret_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpConnectionTestResultPayload {
+    pub success: bool,
+    pub error_summary: Option<String>,
+    pub duration_ms: i64,
+    pub checked_at: String,
+    pub field_errors: Vec<McpFieldErrorPayload>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncMcpConfigsRequest {
+    pub provider_ids: Option<Vec<String>>,
+    pub simulate_failure_provider_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncMcpProviderResultPayload {
+    pub provider_id: String,
+    pub success: bool,
+    pub message: Option<String>,
+    pub backup_path: Option<String>,
+    pub server_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncMcpConfigsResponsePayload {
+    pub success: bool,
+    pub rolled_back: bool,
+    pub message: Option<String>,
+    pub results: Vec<SyncMcpProviderResultPayload>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpOperationLogPayload {
+    pub id: i64,
+    pub mcp_id: Option<String>,
+    pub action: String,
+    pub actor: String,
+    pub details_json: String,
+    pub created_at: String,
+}

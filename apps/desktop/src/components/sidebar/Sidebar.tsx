@@ -15,11 +15,13 @@ import {
   Package,
   Plus,
   RefreshCw,
+  ServerCog,
   Settings2,
   Sun,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { McpPanel } from "@/components/mcp/McpPanel";
 import { ProviderIcon } from "@/components/provider/ProviderIcon";
 import { SkillsPanel } from "@/components/skills/SkillsPanel";
 import {
@@ -1115,6 +1117,10 @@ function normalizeProfileName(value: string | null | undefined): string {
   return normalizeOptionalText(value) ?? "default";
 }
 
+function isDefaultProfileName(value: string | null | undefined): boolean {
+  return normalizeProfileName(value) === "default";
+}
+
 function sanitizeSupplierIdSegment(raw: string): string {
   const normalized = raw
     .toLowerCase()
@@ -1342,6 +1348,7 @@ export function Sidebar({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [skillsDialogOpen, setSkillsDialogOpen] = useState(false);
   const [pendingTheme, setPendingTheme] = useState<AppTheme>(appTheme);
   const [pendingActiveProviderId, setPendingActiveProviderId] =
@@ -1455,7 +1462,13 @@ export function Sidebar({
   }, [selectedProviderId]);
 
   useEffect(() => {
-    if (!settingsOpen && !themeDialogOpen && !accountDialogOpen && !newThreadDialogOpen) {
+    if (
+      !settingsOpen &&
+      !themeDialogOpen &&
+      !accountDialogOpen &&
+      !newThreadDialogOpen &&
+      !mcpDialogOpen
+    ) {
       return;
     }
 
@@ -1487,6 +1500,10 @@ export function Sidebar({
         setAccountDialogOpen(false);
         return;
       }
+      if (mcpDialogOpen) {
+        setMcpDialogOpen(false);
+        return;
+      }
       if (newThreadDialogOpen) {
         if (!isCreateBusy) {
           setNewThreadDialogOpen(false);
@@ -1506,6 +1523,7 @@ export function Sidebar({
     settingsOpen,
     themeDialogOpen,
     accountDialogOpen,
+    mcpDialogOpen,
     newThreadDialogOpen,
     isCreateBusy,
   ]);
@@ -1516,6 +1534,7 @@ export function Sidebar({
       setThemeDialogOpen(false);
       setAccountDialogOpen(false);
       setNewThreadDialogOpen(false);
+      setMcpDialogOpen(false);
     }
   }, [sidebarCollapsed]);
 
@@ -2204,6 +2223,22 @@ export function Sidebar({
                   size="sm"
                   className="h-8 w-full items-center justify-between px-2.5 text-xs"
                   onClick={() => {
+                    setMcpDialogOpen(true);
+                    setSettingsOpen(false);
+                  }}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <ServerCog className="h-3.5 w-3.5" />
+                    MCP
+                  </span>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-full items-center justify-between px-2.5 text-xs"
+                  onClick={() => {
                     setSkillsDialogOpen(true);
                     setSettingsOpen(false);
                   }}
@@ -2621,8 +2656,12 @@ export function Sidebar({
                               {supplier.name}
                             </p>
                             <p className="truncate text-[11px] text-muted-foreground">
-                              {supplier.kind === "official" ? "Official Default" : "Third-party"} · profile{" "}
-                              <code>{supplier.profileName}</code>
+                              {supplier.kind === "official" ? "Official Default" : "Third-party"}
+                              {!isDefaultProfileName(supplier.profileName) ? (
+                                <>
+                                  {" "}· profile <code>{supplier.profileName}</code>
+                                </>
+                              ) : null}
                             </p>
                             {supplier.note?.trim() ? (
                               <p className="truncate text-[11px] text-muted-foreground/90">
@@ -2976,6 +3015,28 @@ export function Sidebar({
               <p className="text-[11px] text-muted-foreground">
                 Current: {pendingThemeOption?.label ?? "Light"}
               </p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
+      {mcpDialogOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4"
+          onClick={() => setMcpDialogOpen(false)}
+        >
+          <Card
+            className="flex max-h-[88vh] w-full max-w-5xl flex-col border border-border bg-card opacity-100 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">MCP Management Center</CardTitle>
+              <CardDescription className="text-xs">
+                Manage MCP server config, validation, connection tests, and provider sync.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-y-auto">
+              <McpPanel />
             </CardContent>
           </Card>
         </div>
