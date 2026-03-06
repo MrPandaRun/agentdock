@@ -24,10 +24,7 @@ import type {
   OpenTargetStatus,
   ProjectGitBranchInfo,
 } from "@/types";
-import {
-  providerAccentClass,
-  providerDisplayName,
-} from "@/lib/provider";
+import { providerAccentClass, providerDisplayName } from "@/lib/provider";
 
 export interface ThreadHeaderProps {
   sidebarCollapsed: boolean;
@@ -71,6 +68,106 @@ function formatGitBranchText(
     return "Git: Path missing";
   }
   return "Git: Unavailable";
+}
+
+/**
+ * Finder-style middle truncation using DOM-based pixel measurement.
+ * Probe element is placed on document.body with copied font styles
+ * to avoid any measurement interference from container overflow.
+ */
+function MiddleTruncate({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const [display, setDisplay] = useState(text);
+
+  useEffect(() => {
+    // Sync display when text prop changes
+    setDisplay(text);
+
+    const el = containerRef.current;
+    if (!el) return;
+
+    // Probe on document.body — completely independent of container overflow
+    const probe = document.createElement("span");
+    probe.style.cssText =
+      "position:fixed;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;pointer-events:none;";
+    document.body.appendChild(probe);
+
+    const syncProbeFont = () => {
+      const cs = getComputedStyle(el);
+      probe.style.font = cs.font;
+      probe.style.letterSpacing = cs.letterSpacing;
+      probe.style.wordSpacing = cs.wordSpacing;
+    };
+
+    const measureWidth = (str: string) => {
+      probe.textContent = str;
+      return probe.getBoundingClientRect().width;
+    };
+
+    const compute = () => {
+      syncProbeFont();
+
+      const containerWidth = el.clientWidth;
+      const fullWidth = measureWidth(text);
+
+      if (fullWidth <= containerWidth) {
+        setDisplay(text);
+        return;
+      }
+
+      const ellipsis = "…";
+      const len = text.length;
+
+      // Binary search: find max n where start(n) + "…" + end(n) fits
+      let lo = 1;
+      let hi = Math.floor(len / 2);
+      let best = 0;
+
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const w = measureWidth(
+          text.slice(0, mid) + ellipsis + text.slice(-mid),
+        );
+        if (w <= containerWidth) {
+          best = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+
+      setDisplay(
+        best === 0
+          ? ellipsis
+          : text.slice(0, best) + ellipsis + text.slice(-best),
+      );
+    };
+
+    const observer = new ResizeObserver(compute);
+    observer.observe(el);
+
+    return () => {
+      observer.disconnect();
+      probe.remove();
+    };
+  }, [text]);
+
+  return (
+    <span
+      ref={containerRef}
+      className={cn("block overflow-hidden whitespace-nowrap", className)}
+      style={{ textOverflow: "clip" }}
+      title={text}
+    >
+      {display}
+    </span>
+  );
 }
 
 export function ThreadHeader({
@@ -148,7 +245,8 @@ export function ThreadHeader({
         ? "Session running. Waiting for first input to persist thread id..."
         : null;
   const gitBranchText = formatGitBranchText(gitBranchInfo, gitBranchLoading);
-  const hasValidProjectPath = headerProjectPath.trim().length > 0 && headerProjectPath !== "-";
+  const hasValidProjectPath =
+    headerProjectPath.trim().length > 0 && headerProjectPath !== "-";
   const defaultOpenTarget = useMemo(
     () =>
       openTargets.find((target) => target.id === defaultOpenTargetId) ??
@@ -175,26 +273,29 @@ export function ThreadHeader({
 
   return (
     <CardHeader className="px-4 py-3 pb-2.5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-1">
           <p
             className={cn(
               "inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.16em]",
               headerProviderAccent,
             )}
           >
-            <ProviderIcon providerId={headerProviderId} className="h-3.5 w-3.5" />
+            <ProviderIcon
+              providerId={headerProviderId}
+              className="h-3.5 w-3.5"
+            />
             {headerProviderName}
           </p>
-          <CardTitle className="text-[22px] leading-none">
-            {headerTitle}
+          <CardTitle className="min-w-0 text-[22px] leading-none">
+            <MiddleTruncate text={headerTitle} />
           </CardTitle>
-          <CardDescription className="truncate text-xs">
-            {headerProjectPath}
+          <CardDescription className="min-w-0 text-xs">
+            <MiddleTruncate text={headerProjectPath} />
           </CardDescription>
         </div>
 
-        <div className="grid justify-items-end gap-2 text-xs text-muted-foreground">
+        <div className="grid shrink-0 justify-items-end gap-2 text-xs text-muted-foreground">
           {terminalStatusText ? <span>{terminalStatusText}</span> : null}
           <span className="inline-flex items-center gap-1 text-[11px]">
             <GitBranch className="h-3 w-3" />
@@ -305,7 +406,9 @@ export function ThreadHeader({
 
                   <div className="flex items-center justify-between px-2 py-1">
                     <div className="space-y-0.5 text-left">
-                      <p className="text-xs font-medium text-foreground">IDE Context</p>
+                      <p className="text-xs font-medium text-foreground">
+                        IDE Context
+                      </p>
                       <p className="text-[11px] text-muted-foreground">
                         {ideContextEnabled ? "Connected" : "Disconnected"}
                       </p>

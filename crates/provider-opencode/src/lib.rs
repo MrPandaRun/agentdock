@@ -853,10 +853,6 @@ fn truncate_text(input: &str, max_chars: usize) -> String {
         }
     }
 
-    if chars.next().is_some() {
-        result.push_str("...");
-    }
-
     result
 }
 
