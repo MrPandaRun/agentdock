@@ -1,12 +1,12 @@
-# AgentDock
+# AgentClaw
 
 Local-first control plane for coding agents across `codex`, `claude_code`, and `opencode`.
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-AgentDock helps you inspect and resume agent-native threads from one desktop workspace without replacing upstream CLIs.
+AgentClaw helps you inspect and resume agent-native threads from one desktop workspace without replacing upstream CLIs.
 
-## Why AgentDock
+## Why AgentClaw
 
 - Keep multi-agent coding workflows in one place instead of jumping across CLI history stores.
 - Preserve agent-native thread data as the source of truth while maintaining local unified indexing.

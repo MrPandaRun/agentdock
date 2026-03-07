@@ -1,12 +1,12 @@
-# AgentDock
+# AgentClaw
 
 面向 `codex`、`claude_code`、`opencode` 的本地优先（local-first）编码代理控制平面。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-AgentDock 帮助你在同一个桌面工作台中查看并恢复 Agent 原生线程，不替代上游 CLI。
+AgentClaw 帮助你在同一个桌面工作台中查看并恢复 Agent 原生线程，不替代上游 CLI。
 
-## Why AgentDock
+## Why AgentClaw
 
 - 把多 Agent 编码工作流收敛到一个入口，减少在不同 CLI 历史之间来回切换。
 - 以 Agent 原生线程数据为事实来源，同时维护本地统一索引。
