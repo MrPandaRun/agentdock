@@ -308,7 +308,7 @@ fn embedded_term_program() -> &'static str {
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn embedded_term_program() -> &'static str {
-    "AgentDock_Embedded"
+    "AgentClaw_Embedded"
 }
 
 fn colorfgbg_for_theme(terminal_theme: Option<&str>) -> &'static str {

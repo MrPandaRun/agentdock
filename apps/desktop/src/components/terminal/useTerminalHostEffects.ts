@@ -75,7 +75,7 @@ export function useTerminalHostEffects({
     terminal.open(hostRef.current);
     tuneHelperTextarea();
     fitAddon.fit();
-    terminal.writeln("AgentDock embedded terminal ready.");
+    terminal.writeln("AgentClaw embedded terminal ready.");
     terminal.focus();
     const handleHostMouseDown = () => terminal.focus();
     hostRef.current.addEventListener("mousedown", handleHostMouseDown);

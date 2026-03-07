@@ -744,7 +744,7 @@ mod tests {
             &repo_path,
             &["config", "user.email", "agentdock@example.com"],
         );
-        run_git(&repo_path, &["config", "user.name", "AgentDock"]);
+        run_git(&repo_path, &["config", "user.name", "AgentClaw"]);
         fs::write(dir.path().join("README.md"), "hello\n").expect("file should be written");
         run_git(&repo_path, &["add", "."]);
         run_git(&repo_path, &["commit", "-m", "init"]);

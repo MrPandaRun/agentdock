@@ -24,7 +24,7 @@ export const TERMINAL_COMMON_SHORTCUTS = [
 export const TERMINAL_PROVIDER_HELP_DOCS: Record<ThreadProviderId, TerminalProviderHelpDoc> = {
   claude_code: {
     modeNote:
-      "Runs Claude Code CLI directly in AgentDock Terminal and preserves native Claude session behavior.",
+      "Runs Claude Code CLI directly in AgentClaw Terminal and preserves native Claude session behavior.",
     quickStartSteps: [
       "Select a Claude thread on the left.",
       "Type your prompt and press Enter to submit. Use Shift+Enter for multiline prompts.",
@@ -49,7 +49,7 @@ export const TERMINAL_PROVIDER_HELP_DOCS: Record<ThreadProviderId, TerminalProvi
   },
   codex: {
     modeNote:
-      "Runs Codex CLI directly in AgentDock Terminal and resumes by session id for this thread.",
+      "Runs Codex CLI directly in AgentClaw Terminal and resumes by session id for this thread.",
     quickStartSteps: [
       "Select a Codex thread, type in terminal, and press Enter to submit.",
       "Use Shift+Enter when preparing multiline instructions.",
@@ -74,7 +74,7 @@ export const TERMINAL_PROVIDER_HELP_DOCS: Record<ThreadProviderId, TerminalProvi
   },
   opencode: {
     modeNote:
-      "Runs OpenCode CLI directly in AgentDock Terminal and continues within the current session context.",
+      "Runs OpenCode CLI directly in AgentClaw Terminal and continues within the current session context.",
     quickStartSteps: [
       "Select an OpenCode thread first, then send instructions in terminal.",
       "Use Shift+Enter for multiline prompts before submitting.",
