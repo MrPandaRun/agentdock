@@ -5,7 +5,6 @@ pub fn parse_provider_id(raw: &str) -> Result<ProviderId, String> {
         "claude_code" => Ok(ProviderId::ClaudeCode),
         "codex" => Ok(ProviderId::Codex),
         "opencode" => Ok(ProviderId::OpenCode),
-        "sophon" => Ok(ProviderId::Sophon),
         _ => Err(format!("Unsupported provider: {raw}")),
     }
 }
@@ -21,7 +20,6 @@ mod tests {
         assert_eq!(parse_provider_id("claude_code"), Ok(ProviderId::ClaudeCode));
         assert_eq!(parse_provider_id("codex"), Ok(ProviderId::Codex));
         assert_eq!(parse_provider_id("opencode"), Ok(ProviderId::OpenCode));
-        assert_eq!(parse_provider_id("sophon"), Ok(ProviderId::Sophon));
     }
 
     #[test]

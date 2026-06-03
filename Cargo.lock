@@ -24,6 +24,7 @@ name = "agentdock-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "provider-contract",
  "rusqlite",
  "serde",
  "serde_json",
@@ -33,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "agentdock-desktop"
-version = "1.3.2"
+version = "1.3.3"
 dependencies = [
  "agentdock-core",
  "chrono",
@@ -3210,6 +3211,7 @@ name = "provider-contract"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 

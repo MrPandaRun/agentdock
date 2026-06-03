@@ -7,3 +7,6 @@ description = "Provider adapter contract for AgentDock"
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

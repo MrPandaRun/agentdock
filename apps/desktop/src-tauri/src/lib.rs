@@ -1,6 +1,7 @@
 mod ccswitch;
 mod command_utils;
 mod commands;
+mod dock_agent;
 mod mcp;
 mod open_targets;
 mod path_env;
@@ -67,7 +68,21 @@ pub fn run() {
             commands::delete_mcp_server,
             commands::toggle_mcp_server_enabled,
             commands::test_mcp_server_connection,
-            commands::sync_mcp_configs
+            commands::sync_mcp_configs,
+            commands::list_dock_agent_tasks,
+            commands::create_dock_agent_task,
+            commands::create_dock_agent_schedule,
+            commands::get_dock_agent_schedule,
+            commands::list_due_dock_agent_schedules,
+            commands::enqueue_due_dock_agent_schedules,
+            commands::create_dock_agent_chat_connector,
+            commands::get_dock_agent_chat_connector,
+            commands::handle_dock_agent_chat_command,
+            commands::request_dock_agent_remote_command,
+            commands::get_dock_agent_remote_command,
+            commands::start_dock_agent_remote_command,
+            commands::complete_dock_agent_remote_command,
+            commands::list_dock_agent_audit_logs,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;

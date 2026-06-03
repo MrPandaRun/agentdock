@@ -15,8 +15,6 @@ use crate::payloads::{
     StartEmbeddedTerminalResponse,
 };
 
-const SOPHON_BINARY_ENV: &str = "AGENTDOCK_SOPHON_BIN";
-
 struct EmbeddedTerminalSession {
     child: Mutex<Box<dyn portable_pty::Child + Send>>,
     stdin: Mutex<Box<dyn Write + Send>>,
@@ -561,16 +559,14 @@ fn build_resume_command_from_parts(
     env: Option<&HashMap<String, String>>,
     project_path: Option<&str>,
 ) -> String {
-    let sophon_binary = sophon_binary_from_env();
     let resume_base = match provider_id {
         ProviderId::ClaudeCode => format!("claude --resume {}", shell_quote(thread_id)),
-        ProviderId::Codex => format!("codex resume {}", shell_quote(thread_id)),
-        ProviderId::OpenCode => format!("opencode --session {}", shell_quote(thread_id)),
-        ProviderId::Sophon => format!(
-            "{} threads resume {}",
-            resolve_provider_command(provider_id, sophon_binary.as_deref()),
+        ProviderId::Codex => format!(
+            "{} resume {}",
+            resolve_provider_command(provider_id),
             shell_quote(thread_id)
         ),
+        ProviderId::OpenCode => format!("opencode --session {}", shell_quote(thread_id)),
     };
     apply_env_and_profile_to_command(resume_base, env, profile_name, project_path)
 }
@@ -581,38 +577,32 @@ fn build_new_thread_command_from_parts(
     env: Option<&HashMap<String, String>>,
     project_path: Option<&str>,
 ) -> String {
-    let sophon_binary = sophon_binary_from_env();
-    let start_base = resolve_provider_command(provider_id, sophon_binary.as_deref());
+    let start_base = resolve_provider_command(provider_id);
     apply_env_and_profile_to_command(start_base, env, profile_name, project_path)
 }
 
-fn resolve_provider_command(provider_id: ProviderId, sophon_binary: Option<&str>) -> String {
+fn resolve_provider_command(provider_id: ProviderId) -> String {
     match provider_id {
         ProviderId::ClaudeCode => "claude".to_string(),
-        ProviderId::Codex => "codex".to_string(),
+        ProviderId::Codex => resolve_codex_command(),
         ProviderId::OpenCode => "opencode".to_string(),
-        ProviderId::Sophon => format_executable_command(sophon_binary.unwrap_or("sophon")),
     }
 }
 
-fn sophon_binary_from_env() -> Option<String> {
-    std::env::var(SOPHON_BINARY_ENV)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-fn format_executable_command(binary: &str) -> String {
-    let trimmed = binary.trim();
-    if trimmed.is_empty() {
-        return "sophon".to_string();
+fn resolve_codex_command() -> String {
+    if command_available("codex") {
+        return "codex".to_string();
     }
 
-    if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains(' ') {
-        return shell_quote(trimmed);
+    #[cfg(target_os = "macos")]
+    {
+        const CODEX_APP_BINARY: &str = "/Applications/Codex.app/Contents/Resources/codex";
+        if command_available(CODEX_APP_BINARY) {
+            return shell_quote(CODEX_APP_BINARY);
+        }
     }
 
-    trimmed.to_string()
+    "codex".to_string()
 }
 
 fn apply_env_and_profile_to_command(
@@ -707,7 +697,7 @@ fn build_happy_command_from_parts(
                 "happy codex".to_string()
             }
         }
-        ProviderId::OpenCode | ProviderId::Sophon => {
+        ProviderId::OpenCode => {
             return Err(
                 "Happy integration currently supports claude_code and codex only".to_string(),
             )
@@ -808,7 +798,7 @@ mod tests {
     use super::{
         build_happy_command_from_parts, build_new_thread_command_from_parts,
         build_resume_command_from_parts, clamp_terminal_cols, clamp_terminal_rows,
-        format_executable_command, resolve_provider_command, shell_quote, TerminalOutputBatcher,
+        resolve_provider_command, shell_quote, TerminalOutputBatcher,
     };
 
     #[test]
@@ -840,24 +830,9 @@ mod tests {
     }
 
     #[test]
-    fn resolve_provider_command_falls_back_to_sophon_binary_name() {
-        let command = resolve_provider_command(ProviderId::Sophon, None);
-        assert_eq!(command, "sophon");
-    }
-
-    #[test]
-    fn resolve_provider_command_uses_managed_sophon_binary_when_present() {
-        let command = resolve_provider_command(ProviderId::Sophon, Some("/tmp/managed sophon"));
-        if cfg!(target_os = "windows") {
-            assert_eq!(command, "\"/tmp/managed sophon\"");
-        } else {
-            assert_eq!(command, "'/tmp/managed sophon'");
-        }
-    }
-
-    #[test]
-    fn format_executable_command_keeps_plain_binary_name_unquoted() {
-        assert_eq!(format_executable_command("sophon"), "sophon");
+    fn resolve_provider_command_finds_codex_command() {
+        let command = resolve_provider_command(ProviderId::Codex);
+        assert!(command == "codex" || command.contains("Codex.app/Contents/Resources/codex"));
     }
 
     #[test]
@@ -949,16 +924,6 @@ mod tests {
     fn build_happy_command_rejects_unsupported_provider() {
         let error = build_happy_command_from_parts(ProviderId::OpenCode, None, None)
             .expect_err("opencode should be rejected");
-        assert_eq!(
-            error,
-            "Happy integration currently supports claude_code and codex only"
-        );
-    }
-
-    #[test]
-    fn build_happy_command_rejects_sophon() {
-        let error = build_happy_command_from_parts(ProviderId::Sophon, None, None)
-            .expect_err("sophon should be rejected");
         assert_eq!(
             error,
             "Happy integration currently supports claude_code and codex only"

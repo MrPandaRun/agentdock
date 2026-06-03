@@ -17,6 +17,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0004_mcp_extra_json",
         include_str!("../../migrations/0004_mcp_extra_json.sql"),
     ),
+    (
+        "0005_dock_agent",
+        include_str!("../../migrations/0005_dock_agent.sql"),
+    ),
 ];
 
 #[derive(Debug, Error)]
@@ -105,6 +109,11 @@ mod tests {
             "switch_events",
             "remote_devices",
             "remote_sessions",
+            "dock_agent_tasks",
+            "dock_agent_schedules",
+            "dock_agent_chat_connectors",
+            "dock_agent_remote_commands",
+            "dock_agent_audit_logs",
         ];
 
         for table in expected_tables {
@@ -123,7 +132,7 @@ mod tests {
                 row.get(0)
             })
             .expect("count query should succeed");
-        assert_eq!(applied, 4);
+        assert_eq!(applied, 5);
     }
 
     #[test]
@@ -135,6 +144,7 @@ mod tests {
         let conn = init_db(&path).expect("init_db should create sqlite and run migrations");
         assert!(table_exists(&conn, "threads"));
         assert!(table_exists(&conn, "remote_sessions"));
+        assert!(table_exists(&conn, "dock_agent_tasks"));
 
         drop(conn);
         let _ = std::fs::remove_file(path);

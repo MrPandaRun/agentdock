@@ -12,6 +12,10 @@
       "types": "./src/provider.ts",
       "default": "./src/provider.ts"
     },
+    "./dock-agent": {
+      "types": "./src/dock-agent.ts",
+      "default": "./src/dock-agent.ts"
+    },
     "./thread": {
       "types": "./src/thread.ts",
       "default": "./src/thread.ts"

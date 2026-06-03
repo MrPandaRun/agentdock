@@ -155,7 +155,7 @@ fn map_opencode_thread_overview(overview: OpenCodeThreadOverview) -> ThreadSumma
 fn map_sophon_thread_overview(overview: SophonThreadOverview) -> ThreadSummaryPayload {
     ThreadSummaryPayload {
         id: overview.summary.id,
-        provider_id: overview.summary.provider_id.as_str().to_string(),
+        provider_id: overview.summary.provider_id,
         project_path: overview.summary.project_path,
         title: overview.summary.title,
         tags: overview.summary.tags,

@@ -586,3 +586,176 @@ pub struct McpOperationLogPayload {
     pub details_json: String,
     pub created_at: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentTaskPayload {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    pub title: String,
+    pub objective: String,
+    pub provider_id: Option<String>,
+    pub target_thread_id: Option<String>,
+    pub schedule_id: Option<String>,
+    pub chat_connector_id: Option<String>,
+    pub remote_command_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub metadata_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentSchedulePayload {
+    pub id: String,
+    pub task_id: Option<String>,
+    pub cadence: String,
+    pub cron_expression: Option<String>,
+    pub timezone: String,
+    pub enabled: bool,
+    pub next_run_at: Option<String>,
+    pub last_run_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentChatConnectorPayload {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub enabled: bool,
+    pub config_json: String,
+    pub secret_ref: Option<String>,
+    pub last_seen_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentRemoteCommandPayload {
+    pub id: String,
+    pub task_id: Option<String>,
+    pub device_id: Option<String>,
+    pub status: String,
+    pub command: String,
+    pub args_json: String,
+    pub working_dir: Option<String>,
+    pub policy_json: String,
+    pub requested_by: String,
+    pub approved_at: Option<String>,
+    pub executed_at: Option<String>,
+    pub result_json: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentAuditLogPayload {
+    pub id: i64,
+    pub actor: String,
+    pub action: String,
+    pub subject_type: String,
+    pub subject_id: Option<String>,
+    pub outcome: String,
+    pub details_json: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListDockAgentTasksRequest {
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListDockAgentAuditLogsRequest {
+    pub subject_type: Option<String>,
+    pub subject_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetDockAgentEntityRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnqueueDueDockAgentSchedulesRequest {
+    pub now: String,
+    pub actor: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentDueScheduleEnqueuePayload {
+    pub schedule: DockAgentSchedulePayload,
+    pub task: DockAgentTaskPayload,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentChatCommandRequestPayload {
+    pub connector_id: String,
+    pub external_message_id: Option<String>,
+    pub actor: String,
+    pub text: String,
+    pub received_at: String,
+    pub raw_payload_json: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentChatCommandResultPayload {
+    pub accepted: bool,
+    pub task: Option<DockAgentTaskPayload>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentRemoteCommandRequestPayload {
+    pub id: String,
+    pub task_id: Option<String>,
+    pub device_id: Option<String>,
+    pub command: String,
+    pub args_json: String,
+    pub working_dir: Option<String>,
+    pub policy_json: String,
+    pub requested_by: String,
+    pub requested_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockAgentRemoteCommandDecisionPayload {
+    pub accepted: bool,
+    pub command: DockAgentRemoteCommandPayload,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartDockAgentRemoteCommandRequest {
+    pub id: String,
+    pub actor: String,
+    pub started_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompleteDockAgentRemoteCommandRequest {
+    pub id: String,
+    pub succeeded: bool,
+    pub actor: String,
+    pub result_json: String,
+    pub completed_at: String,
+}

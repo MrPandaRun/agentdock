@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import DockAgentPanel from "@/components/dock-agent/DockAgentPanel";
 import { ThreadHeader } from "@/components/header/ThreadHeader";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { EmbeddedTerminal } from "@/components/terminal/EmbeddedTerminal";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useSidebar } from "@/hooks/useSidebar";
@@ -47,12 +49,15 @@ const APP_THEME_KEY = "agentdock.desktop.app_theme";
 const APP_SKIN_KEY = "agentdock.desktop.app_skin";
 const AGENT_RUNTIME_SETTINGS_KEY = "agentdock.desktop.agent_runtime_settings";
 const APP_WORKSPACE_MODE_KEY = "agentdock.desktop.workspace_mode";
+const MAIN_VIEW_KEY = "agentdock.desktop.main_view";
 const LEGACY_AGENT_PROFILE_SETTINGS_KEY = "agentdock.desktop.agent_profile_settings";
 const LEGACY_ACTIVE_PROVIDER_KEY = "agentdock.desktop.active_provider";
 const LEGACY_ACTIVE_PROFILE_KEY = "agentdock.desktop.active_profile";
 const OFFICIAL_SUPPLIER_ID = "official-default";
 const PROVIDER_IDS: ThreadProviderId[] = ["claude_code", "codex", "opencode", "sophon"];
 const GIT_BRANCH_POLL_INTERVAL_MS = 8_000;
+
+type MainView = "terminal" | "dock_agent";
 
 interface OpenProjectWithTargetResponse {
   launched: boolean;
@@ -115,6 +120,15 @@ function readStoredWorkspaceMode(): AppWorkspaceMode {
   }
   const raw = window.localStorage.getItem(APP_WORKSPACE_MODE_KEY);
   return raw === "automatic" ? "automatic" : "manual";
+}
+
+function readStoredMainView(): MainView {
+  if (typeof window === "undefined") {
+    return "terminal";
+  }
+  return window.localStorage.getItem(MAIN_VIEW_KEY) === "dock_agent"
+    ? "dock_agent"
+    : "terminal";
 }
 
 function readSystemTheme(): TerminalTheme {
@@ -734,6 +748,7 @@ function App() {
   const [agentRuntimeSettings, setAgentRuntimeSettings] = useState<AgentRuntimeSettings>(
     readStoredAgentRuntimeSettings,
   );
+  const [mainView, setMainView] = useState<MainView>(readStoredMainView);
   const [systemTheme, setSystemTheme] = useState<TerminalTheme>(readSystemTheme);
   const resolvedTheme: TerminalTheme =
     appTheme === "system" ? systemTheme : appTheme;
@@ -1244,6 +1259,13 @@ function App() {
     window.localStorage.setItem(APP_SKIN_KEY, appSkin);
   }, [appSkin]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(MAIN_VIEW_KEY, mainView);
+  }, [mainView]);
+
   return (
     <main className="relative h-full min-h-0 select-none overflow-hidden bg-background">
       <div
@@ -1344,36 +1366,62 @@ function App() {
           />
           <Separator />
 
+          <div className="flex items-center gap-2 border-b bg-card px-4 py-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={mainView === "terminal" ? "default" : "ghost"}
+              onClick={() => setMainView("terminal")}
+            >
+              Terminal
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={mainView === "dock_agent" ? "default" : "ghost"}
+              onClick={() => setMainView("dock_agent")}
+            >
+              Dock Agent
+            </Button>
+          </div>
+
           <CardContent className={cn("min-h-0 flex-1", "p-0")}>
             <div className="h-full w-full">
-              <EmbeddedTerminal
-                thread={
-                  newThreadLaunch
-                    ? {
-                        id: `__new__:${newThreadLaunch.launchId}`,
-                        providerId: newThreadLaunch.providerId,
-                        profileName: newThreadLaunch.profileName,
-                        launchEnv: newThreadLaunch.launchEnv,
-                        projectPath: newThreadLaunch.projectPath,
-                      }
-                    : visibleSelectedThread
+              {mainView === "terminal" ? (
+                <EmbeddedTerminal
+                  thread={
+                    newThreadLaunch
                       ? {
-                          id: visibleSelectedThread.id,
-                          providerId: visibleSelectedThread.providerId,
-                          profileName: resolveProfileNameForProvider(visibleSelectedThread.providerId),
-                          launchEnv: resolveLaunchEnv(visibleSelectedThread.providerId),
-                          ideContextEnv: selectedThreadIdeContextEnv,
-                          projectPath: visibleSelectedThread.projectPath,
+                          id: `__new__:${newThreadLaunch.launchId}`,
+                          providerId: newThreadLaunch.providerId,
+                          profileName: newThreadLaunch.profileName,
+                          launchEnv: newThreadLaunch.launchEnv,
+                          projectPath: newThreadLaunch.projectPath,
                         }
-                      : null
-                }
-                launchRequest={newThreadLaunch}
-                terminalTheme={resolvedTheme}
-                appSkin={appSkin}
-                onLaunchRequestSettled={handleNewThreadLaunchSettled}
-                onActiveSessionExit={handleEmbeddedTerminalSessionExit}
-                onError={setError}
-              />
+                      : visibleSelectedThread
+                        ? {
+                            id: visibleSelectedThread.id,
+                            providerId: visibleSelectedThread.providerId,
+                            profileName: resolveProfileNameForProvider(visibleSelectedThread.providerId),
+                            launchEnv: resolveLaunchEnv(visibleSelectedThread.providerId),
+                            ideContextEnv: selectedThreadIdeContextEnv,
+                            projectPath: visibleSelectedThread.projectPath,
+                          }
+                        : null
+                  }
+                  launchRequest={newThreadLaunch}
+                  terminalTheme={resolvedTheme}
+                  appSkin={appSkin}
+                  onLaunchRequestSettled={handleNewThreadLaunchSettled}
+                  onActiveSessionExit={handleEmbeddedTerminalSessionExit}
+                  onError={setError}
+                />
+              ) : (
+                <DockAgentPanel
+                  selectedThread={visibleSelectedThread}
+                  darkMode={resolvedTheme === "dark"}
+                />
+              )}
             </div>
           </CardContent>
         </Card>

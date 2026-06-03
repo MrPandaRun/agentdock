@@ -16,6 +16,8 @@ use time::OffsetDateTime;
 
 const CODEX_HOME_DIR_ENV: &str = "AGENTDOCK_CODEX_HOME_DIR";
 const CODEX_AGENT_ACTIVITY_WINDOW_MS: i64 = 120_000;
+#[cfg(target_os = "macos")]
+const CODEX_APP_BINARY: &str = "/Applications/Codex.app/Contents/Resources/codex";
 
 #[derive(Debug, Clone)]
 struct ThreadRecord {
@@ -164,16 +166,17 @@ impl CodexAdapter {
     }
 
     fn ensure_cli_reachable(&self) -> ProviderResult<()> {
-        match Command::new("codex").arg("--version").output() {
+        let binary = resolve_codex_binary();
+        match Command::new(&binary).arg("--version").output() {
             Ok(_) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(provider_error(
                 ProviderErrorCode::UpstreamUnavailable,
-                "Codex CLI not found in PATH: codex".to_string(),
+                format!("Codex CLI not found in PATH: {binary}"),
                 false,
             )),
             Err(error) => Err(provider_error(
                 ProviderErrorCode::UpstreamUnavailable,
-                format!("Failed to execute Codex CLI (codex): {error}"),
+                format!("Failed to execute Codex CLI ({binary}): {error}"),
                 true,
             )),
         }
@@ -191,20 +194,21 @@ impl ProviderAdapter for CodexAdapter {
     ) -> ProviderResult<ProviderHealthCheckResult> {
         let checked_at = now_unix_millis().to_string();
 
-        match Command::new("codex").arg("--version").output() {
+        let binary = resolve_codex_binary();
+        match Command::new(&binary).arg("--version").output() {
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(ProviderHealthCheckResult {
                     provider_id: ProviderId::Codex,
                     status: ProviderHealthStatus::Offline,
                     checked_at,
-                    message: Some("Codex CLI not found in PATH: codex".to_string()),
+                    message: Some(format!("Codex CLI not found in PATH: {binary}")),
                 });
             }
             Err(error) => {
                 return Err(provider_error(
                     ProviderErrorCode::UpstreamUnavailable,
-                    format!("Failed to execute Codex CLI (codex): {error}"),
+                    format!("Failed to execute Codex CLI ({binary}): {error}"),
                     true,
                 ));
             }
@@ -283,6 +287,39 @@ fn provider_error(code: ProviderErrorCode, message: String, retryable: bool) -> 
         message,
         retryable,
     }
+}
+
+fn resolve_codex_binary() -> String {
+    if command_available("codex") {
+        return "codex".to_string();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if Path::new(CODEX_APP_BINARY).is_file() {
+            return CODEX_APP_BINARY.to_string();
+        }
+    }
+
+    "codex".to_string()
+}
+
+fn command_available(command: &str) -> bool {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Path::new(trimmed).is_file();
+    }
+
+    let Some(raw_path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&raw_path)
+        .filter(|path| !path.as_os_str().is_empty())
+        .any(|path| path.join(trimmed).is_file())
 }
 
 fn collect_jsonl_files(root: &Path, output: &mut Vec<PathBuf>) {

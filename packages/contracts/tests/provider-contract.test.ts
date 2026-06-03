@@ -4,6 +4,7 @@ import {
   type ProviderId,
   type ProviderHealthCheckResult,
 } from "../src/provider";
+import type { DockAgentTask } from "../src/dock-agent";
 
 describe("provider contract", () => {
   test("includes V1 provider ids", () => {
@@ -11,7 +12,6 @@ describe("provider contract", () => {
       "codex",
       "claude_code",
       "opencode",
-      "sophon",
     ]);
   });
 
@@ -24,5 +24,23 @@ describe("provider contract", () => {
 
     expect(payload.providerId).toBe("codex");
     expect(payload.status).toBe("healthy");
+  });
+
+  test("dock agent task payload can target a V1 provider thread", () => {
+    const task: DockAgentTask = {
+      id: "task-1",
+      kind: "orchestration",
+      status: "queued",
+      title: "Review stale work",
+      objective: "Inspect open worker threads and resume the highest-priority one.",
+      providerId: "codex",
+      targetThreadId: "thread-1",
+      createdAt: "2026-06-03T00:00:00Z",
+      updatedAt: "2026-06-03T00:00:00Z",
+      metadataJson: "{}",
+    };
+
+    expect(task.providerId).toBe("codex");
+    expect(task.status).toBe("queued");
   });
 });

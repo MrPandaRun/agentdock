@@ -1,4 +1,4 @@
-export type ProviderId = "codex" | "claude_code" | "opencode" | "sophon";
+export type ProviderId = "codex" | "claude_code" | "opencode";
 
 export type ProviderErrorCode =
   | "credential_missing"
@@ -64,5 +64,4 @@ export const SUPPORTED_PROVIDERS: ProviderId[] = [
   "codex",
   "claude_code",
   "opencode",
-  "sophon",
 ];

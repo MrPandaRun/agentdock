@@ -2,21 +2,30 @@ use provider_contract::ProviderId;
 use provider_sophon::SophonAdapter;
 use tauri::Emitter;
 
+use crate::dock_agent::{self, DockAgentContext};
 use crate::payloads::{
     AddSkillRepoRequest, CcSwitchImportPayload, ClaudeThreadRuntimeStatePayload,
-    CloseEmbeddedTerminalRequest, CodexThreadRuntimeStatePayload, DeleteMcpServerRequest,
-    DiscoverSkillInstallProgressPayload, GetClaudeThreadRuntimeStateRequest,
-    GetCodexThreadRuntimeStateRequest, GetOpenCodeThreadRuntimeStateRequest,
-    GetProjectGitBranchRequest, GetSophonThreadRuntimeStateRequest, InstallDiscoveredSkillRequest,
-    InstallSkillFromGitRequest, InstallSkillFromPathRequest, InstallSophonCliPayload,
-    McpConnectionTestResultPayload, McpOperationLogPayload, McpServerPayload,
-    OpenCodeThreadRuntimeStatePayload, OpenNewThreadInTerminalRequest,
+    CloseEmbeddedTerminalRequest, CodexThreadRuntimeStatePayload,
+    CompleteDockAgentRemoteCommandRequest, DeleteMcpServerRequest,
+    DiscoverSkillInstallProgressPayload, DockAgentAuditLogPayload,
+    DockAgentChatCommandRequestPayload, DockAgentChatCommandResultPayload,
+    DockAgentChatConnectorPayload, DockAgentDueScheduleEnqueuePayload,
+    DockAgentRemoteCommandDecisionPayload, DockAgentRemoteCommandPayload,
+    DockAgentRemoteCommandRequestPayload, DockAgentSchedulePayload, DockAgentTaskPayload,
+    EnqueueDueDockAgentSchedulesRequest, GetClaudeThreadRuntimeStateRequest,
+    GetCodexThreadRuntimeStateRequest, GetDockAgentEntityRequest,
+    GetOpenCodeThreadRuntimeStateRequest, GetProjectGitBranchRequest,
+    GetSophonThreadRuntimeStateRequest, InstallDiscoveredSkillRequest, InstallSkillFromGitRequest,
+    InstallSkillFromPathRequest, InstallSophonCliPayload, ListDockAgentAuditLogsRequest,
+    ListDockAgentTasksRequest, McpConnectionTestResultPayload, McpOperationLogPayload,
+    McpServerPayload, OpenCodeThreadRuntimeStatePayload, OpenNewThreadInTerminalRequest,
     OpenProjectWithTargetRequest, OpenProjectWithTargetResponse, OpenTargetStatusPayload,
     OpenThreadInHappyRequest, OpenThreadInTerminalRequest, OpenThreadInTerminalResponse,
     ProjectGitBranchPayload, ProviderInstallStatusPayload, RemoveSkillRepoRequest,
     ResizeEmbeddedTerminalRequest, SaveMcpServerRequest, SaveMcpServerResponsePayload,
     SkillPayload, SkillRepoPayload, SophonConductorSessionPayload, SophonThreadRuntimeStatePayload,
-    StartEmbeddedTerminalRequest, StartEmbeddedTerminalResponse, StartNewEmbeddedTerminalRequest,
+    StartDockAgentRemoteCommandRequest, StartEmbeddedTerminalRequest,
+    StartEmbeddedTerminalResponse, StartNewEmbeddedTerminalRequest,
     StartSophonConductorSessionRequest, SyncMcpConfigsRequest, SyncMcpConfigsResponsePayload,
     SyncSophonAccountSettingsPayload, SyncSophonAccountSettingsRequest, TestMcpConnectionRequest,
     ThreadSummaryPayload, ToggleMcpServerEnabledRequest, ToggleSkillEnabledForProviderRequest,
@@ -84,6 +93,188 @@ pub async fn sync_sophon_account_settings(
     })
     .await
     .map_err(|error| format!("Failed to sync Sophon account settings: {error}"))?
+}
+
+#[tauri::command]
+pub async fn list_dock_agent_tasks(
+    app: tauri::AppHandle,
+    request: ListDockAgentTasksRequest,
+) -> Result<Vec<DockAgentTaskPayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::list_tasks_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to list Dock Agent tasks: {error}"))?
+}
+
+#[tauri::command]
+pub async fn create_dock_agent_task(
+    app: tauri::AppHandle,
+    request: DockAgentTaskPayload,
+) -> Result<DockAgentTaskPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::create_task_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to create Dock Agent task: {error}"))?
+}
+
+#[tauri::command]
+pub async fn create_dock_agent_schedule(
+    app: tauri::AppHandle,
+    request: DockAgentSchedulePayload,
+) -> Result<DockAgentSchedulePayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::create_schedule_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to create Dock Agent schedule: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_dock_agent_schedule(
+    app: tauri::AppHandle,
+    request: GetDockAgentEntityRequest,
+) -> Result<DockAgentSchedulePayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::get_schedule_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to get Dock Agent schedule: {error}"))?
+}
+
+#[tauri::command]
+pub async fn list_due_dock_agent_schedules(
+    app: tauri::AppHandle,
+    now: String,
+) -> Result<Vec<DockAgentSchedulePayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::list_due_schedules_cmd(&ctx, now)
+    })
+    .await
+    .map_err(|error| format!("Failed to list due Dock Agent schedules: {error}"))?
+}
+
+#[tauri::command]
+pub async fn enqueue_due_dock_agent_schedules(
+    app: tauri::AppHandle,
+    request: EnqueueDueDockAgentSchedulesRequest,
+) -> Result<Vec<DockAgentDueScheduleEnqueuePayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::enqueue_due_schedules_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to enqueue due Dock Agent schedules: {error}"))?
+}
+
+#[tauri::command]
+pub async fn create_dock_agent_chat_connector(
+    app: tauri::AppHandle,
+    request: DockAgentChatConnectorPayload,
+) -> Result<DockAgentChatConnectorPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::create_chat_connector_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to create Dock Agent chat connector: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_dock_agent_chat_connector(
+    app: tauri::AppHandle,
+    request: GetDockAgentEntityRequest,
+) -> Result<DockAgentChatConnectorPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::get_chat_connector_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to get Dock Agent chat connector: {error}"))?
+}
+
+#[tauri::command]
+pub async fn handle_dock_agent_chat_command(
+    app: tauri::AppHandle,
+    request: DockAgentChatCommandRequestPayload,
+) -> Result<DockAgentChatCommandResultPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::handle_chat_command_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to handle Dock Agent chat command: {error}"))?
+}
+
+#[tauri::command]
+pub async fn request_dock_agent_remote_command(
+    app: tauri::AppHandle,
+    request: DockAgentRemoteCommandRequestPayload,
+) -> Result<DockAgentRemoteCommandDecisionPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::request_remote_command_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to request Dock Agent remote command: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_dock_agent_remote_command(
+    app: tauri::AppHandle,
+    request: GetDockAgentEntityRequest,
+) -> Result<DockAgentRemoteCommandPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::get_remote_command_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to get Dock Agent remote command: {error}"))?
+}
+
+#[tauri::command]
+pub async fn start_dock_agent_remote_command(
+    app: tauri::AppHandle,
+    request: StartDockAgentRemoteCommandRequest,
+) -> Result<DockAgentRemoteCommandPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::start_remote_command_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to start Dock Agent remote command: {error}"))?
+}
+
+#[tauri::command]
+pub async fn complete_dock_agent_remote_command(
+    app: tauri::AppHandle,
+    request: CompleteDockAgentRemoteCommandRequest,
+) -> Result<DockAgentRemoteCommandPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::complete_remote_command_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to complete Dock Agent remote command: {error}"))?
+}
+
+#[tauri::command]
+pub async fn list_dock_agent_audit_logs(
+    app: tauri::AppHandle,
+    request: ListDockAgentAuditLogsRequest,
+) -> Result<Vec<DockAgentAuditLogPayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ctx = DockAgentContext::from_app_handle(&app)?;
+        dock_agent::list_audit_logs_cmd(&ctx, request)
+    })
+    .await
+    .map_err(|error| format!("Failed to list Dock Agent audit logs: {error}"))?
 }
 
 #[tauri::command]
@@ -405,7 +596,7 @@ fn parse_provider_for_happy_launch(raw: &str) -> Result<ProviderId, String> {
         .map_err(|_| format!("Unsupported provider for Happy integration: {raw}"))?;
     match provider_id {
         ProviderId::ClaudeCode | ProviderId::Codex => Ok(provider_id),
-        ProviderId::OpenCode | ProviderId::Sophon => {
+        ProviderId::OpenCode => {
             Err("Happy integration currently supports claude_code and codex only".to_string())
         }
     }

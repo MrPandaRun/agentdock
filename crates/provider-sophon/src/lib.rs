@@ -1,7 +1,6 @@
 use provider_contract::{
-    ProviderAdapter, ProviderError, ProviderErrorCode, ProviderHealthCheckRequest,
-    ProviderHealthCheckResult, ProviderHealthStatus, ProviderId, ProviderResult,
-    ResumeThreadRequest, ResumeThreadResult, ThreadSummary,
+    ProviderError, ProviderErrorCode, ProviderHealthCheckRequest, ProviderHealthStatus,
+    ProviderResult, ResumeThreadRequest, ResumeThreadResult,
 };
 use serde::Deserialize;
 use std::process::Command;
@@ -10,8 +9,27 @@ const SOPHON_BINARY_ENV: &str = "AGENTDOCK_SOPHON_BIN";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SophonThreadOverview {
-    pub summary: ThreadSummary,
+    pub summary: SophonThreadSummary,
     pub last_message_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SophonThreadSummary {
+    pub id: String,
+    pub provider_id: String,
+    pub account_id: Option<String>,
+    pub project_path: String,
+    pub title: String,
+    pub tags: Vec<String>,
+    pub last_active_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SophonHealthCheckResult {
+    pub provider_id: String,
+    pub status: ProviderHealthStatus,
+    pub checked_at: String,
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,9 +129,9 @@ impl SophonAdapter {
             .into_iter()
             .map(|thread| SophonThreadOverview {
                 last_message_preview: thread.last_message_preview,
-                summary: ThreadSummary {
+                summary: SophonThreadSummary {
                     id: thread.id,
-                    provider_id: ProviderId::Sophon,
+                    provider_id: "sophon".to_string(),
                     account_id: None,
                     project_path: thread.project_path,
                     title: thread.title,
@@ -229,20 +247,13 @@ impl SophonAdapter {
             )
         })
     }
-}
-
-impl ProviderAdapter for SophonAdapter {
-    fn provider_id(&self) -> ProviderId {
-        ProviderId::Sophon
-    }
-
-    fn health_check(
+    pub fn health_check(
         &self,
         _request: ProviderHealthCheckRequest,
-    ) -> ProviderResult<ProviderHealthCheckResult> {
+    ) -> ProviderResult<SophonHealthCheckResult> {
         let payload: CliHealthPayload = self.exec_json(&["health", "--json"])?;
-        Ok(ProviderHealthCheckResult {
-            provider_id: ProviderId::Sophon,
+        Ok(SophonHealthCheckResult {
+            provider_id: "sophon".to_string(),
             status: match payload.status.as_str() {
                 "healthy" => ProviderHealthStatus::Healthy,
                 "degraded" => ProviderHealthStatus::Degraded,
@@ -253,7 +264,10 @@ impl ProviderAdapter for SophonAdapter {
         })
     }
 
-    fn list_threads(&self, project_path: Option<&str>) -> ProviderResult<Vec<ThreadSummary>> {
+    pub fn list_threads(
+        &self,
+        project_path: Option<&str>,
+    ) -> ProviderResult<Vec<SophonThreadSummary>> {
         Ok(self
             .list_thread_overviews(project_path)?
             .into_iter()
@@ -261,7 +275,10 @@ impl ProviderAdapter for SophonAdapter {
             .collect())
     }
 
-    fn resume_thread(&self, request: ResumeThreadRequest) -> ProviderResult<ResumeThreadResult> {
+    pub fn resume_thread(
+        &self,
+        request: ResumeThreadRequest,
+    ) -> ProviderResult<ResumeThreadResult> {
         let payload: CliResumePayload =
             self.exec_json(&["threads", "resume", &request.thread_id, "--json"])?;
         Ok(ResumeThreadResult {
@@ -301,7 +318,7 @@ fn map_conductor_session_payload(payload: CliConductorSessionPayload) -> SophonC
 mod tests {
     use super::SophonAdapter;
     use provider_contract::{
-        ProviderAdapter, ProviderHealthCheckRequest, ProviderHealthStatus, ResumeThreadRequest,
+        ProviderHealthCheckRequest, ProviderHealthStatus, ResumeThreadRequest,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -379,7 +396,7 @@ exit 1
             })
             .expect("health check should succeed");
 
-        assert_eq!(result.provider_id.as_str(), "sophon");
+        assert_eq!(result.provider_id, "sophon");
         assert_eq!(result.status, ProviderHealthStatus::Healthy);
         assert_eq!(result.message.as_deref(), Some("ok"));
     }
@@ -393,7 +410,7 @@ exit 1
             .expect("threads should load");
 
         assert_eq!(threads.len(), 1);
-        assert_eq!(threads[0].summary.provider_id.as_str(), "sophon");
+        assert_eq!(threads[0].summary.provider_id, "sophon");
         assert_eq!(threads[0].summary.id, "sophon-a");
         assert_eq!(threads[0].last_message_preview.as_deref(), Some("hello"));
     }

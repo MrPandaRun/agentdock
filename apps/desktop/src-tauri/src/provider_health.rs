@@ -4,7 +4,7 @@ use provider_contract::{
     ProviderAdapter, ProviderHealthCheckRequest, ProviderHealthCheckResult, ProviderHealthStatus,
 };
 use provider_opencode::OpenCodeAdapter;
-use provider_sophon::SophonAdapter;
+use provider_sophon::{SophonAdapter, SophonHealthCheckResult};
 
 use crate::payloads::ProviderInstallStatusPayload;
 
@@ -63,7 +63,7 @@ pub fn list_provider_install_statuses(
         map_provider_install_status(codex),
         map_provider_install_status(claude),
         map_provider_install_status(opencode),
-        map_provider_install_status(sophon),
+        map_sophon_install_status(sophon),
     ])
 }
 
@@ -77,12 +77,23 @@ fn map_provider_install_status(result: ProviderHealthCheckResult) -> ProviderIns
 }
 
 fn is_cli_missing(result: &ProviderHealthCheckResult) -> bool {
-    if result.status != ProviderHealthStatus::Offline {
+    is_cli_missing_parts(result.status, result.message.as_deref())
+}
+
+fn map_sophon_install_status(result: SophonHealthCheckResult) -> ProviderInstallStatusPayload {
+    ProviderInstallStatusPayload {
+        provider_id: result.provider_id,
+        installed: !is_cli_missing_parts(result.status, result.message.as_deref()),
+        health_status: health_status_as_str(result.status).to_string(),
+        message: result.message,
+    }
+}
+
+fn is_cli_missing_parts(status: ProviderHealthStatus, message: Option<&str>) -> bool {
+    if status != ProviderHealthStatus::Offline {
         return false;
     }
-    result
-        .message
-        .as_deref()
+    message
         .map(|message| message.contains("CLI not found in PATH"))
         .unwrap_or(false)
 }
